@@ -1,55 +1,134 @@
 # Webcanvas
 
-A local workspace for arranging live websites side by side on project canvases.
+Arrange live websites side by side on an infinite canvas. Create separate projects, compare responsive layouts, and keep related screens linked to the same address.
 
-## Stack
+Built with **Laravel 13, Inertia 2, React 19, TypeScript, Tailwind CSS 4, and shadcn/ui (Radix)**. Projects and canvas layouts are saved in SQLite.
 
-Laravel 13, Inertia 2, React 19, TypeScript, Tailwind CSS 4, and shadcn/ui (Radix). SQLite stores projects, screens, and viewport state.
+## Screenshots
+
+### Canvas
+
+Move and resize screens freely, navigate with the compact minimap, and control your workspace from the centered toolbar.
+
+![Webcanvas with linked desktop and phone screens, a blank screen, and a compact minimap](public/screenshots/canvas.jpg)
+
+### Screen presets
+
+Choose a size from the **+ dropdown** to add a blank screen immediately—no setup modal.
+
+![Screen size dropdown with phone, tablet, laptop, desktop, and wide presets](public/screenshots/screen-presets.jpg)
+
+### Projects
+
+Create, search, rename, and delete project canvases.
+
+![Project library filtered to a responsive preview project](public/screenshots/projects.jpg)
+
+## Features
+
+- **Project library:** each project has its own canvas, screens, and saved viewport.
+- **Movable, resizable screens:** drag the title, browser chrome, blank content, or inactive website area; resize from the bottom-right corner.
+- **Responsive size presets:** add phone, tablet, laptop, desktop, and wide screens directly from the toolbar.
+- **Linked screens:** share one address across multiple screens while keeping their sizes and positions independent.
+- **Live website interaction:** double-click a loaded screen or choose **Interact with website** to use its links and forms. Click the canvas to return to arranging screens.
+- **Canvas navigation:** pan, zoom from 10–200%, reset to 100%, and fit all screens.
+- **Compact minimap:** see the current viewport and navigate by clicking, dragging, or focusing it and using arrow keys.
+- **Right-click quick menu:** add a desktop screen, switch Select/Pan tools, adjust zoom, fit screens, or return to projects.
+- **Centered toolbar:** project name, save status, back navigation, tools, and a show/hide dot-background toggle.
+- **Screen controls:** edit URLs, reload, duplicate, link/unlink, open in a new tab, and delete.
+- **Automatic saving:** screen URLs, links, positions, dimensions, project names, and canvas viewport persist. Failed saves offer a retry action.
+
+### Screen sizes
+
+| Preset | Width × height |
+| --- | --- |
+| XS · Phone | 375 × 812 |
+| Small | 640 × 900 |
+| Medium · Tablet | 768 × 1024 |
+| Large · Laptop | 1024 × 768 |
+| X-Large · Desktop (default) | 1440 × 900 |
+| 2X-Large · Wide | 1920 × 1080 |
+
+Dimensions describe the website content viewport in CSS pixels, excluding the screen chrome. All presets remain freely resizable.
+
+### Linking screens
+
+1. Add two or more screens and enter a website address in one screen's address bar.
+2. Click the **chain icon** on the screen you want to link.
+3. Under **Use the website from**, choose another screen and click **Link screen**.
+4. Change the address in any linked screen to update the entire group.
+
+Repeat to join more screens to a group. To disconnect one, click its chain icon and choose **Unlink this screen**. Linking adopts the chosen screen's address. Navigation or clicks *inside* a website are independent and do not synchronize.
+
+### Shortcuts
+
+| Action | Shortcut |
+| --- | --- |
+| Select tool | `V` |
+| Pan tool | `H` |
+| Temporarily pan | Hold `Space` and drag |
+| Pan canvas | Drag background or scroll |
+| Zoom around the pointer | `Ctrl` / `Cmd` + scroll |
+| Zoom in / out | `+` / `−` |
+| Fit all screens | `0` |
+| Actual size (100%) | `1` |
+| Exit website interaction / clear selection | `Escape` |
 
 ## Run locally
 
-Requirements: PHP 8.3+, Composer, and Node.js compatible with Vite 8 (22.12+ or 24+).
+### Requirements
+
+- PHP **8.3+** with Laravel's required extensions, including SQLite support (`pdo_sqlite`). Development uses PHP 8.4.
+- Composer **2**.
+- Node.js **24 LTS** and npm (recommended; also supports the included TypeScript test runner).
+- Git.
+
+No separate database server is needed.
+
+### Install
 
 ```sh
-composer setup
+git clone https://github.com/cesardg21/webcanvas.git
+cd webcanvas
+composer install
+npm ci
 ```
 
-On a fresh checkout, `composer setup` installs dependencies, creates `.env`, generates an application key, runs migrations, and builds assets. If SQLite asks to create its database file, accept.
+Create the local environment file and SQLite database. These commands work without overwriting an existing environment or database:
 
-Start the backend:
+```sh
+php -r "file_exists('.env') || copy('.env.example', '.env');"
+php -r "file_exists('database/database.sqlite') || touch('database/database.sqlite');"
+php artisan key:generate
+php artisan migrate
+npm run build
+```
+
+Run `key:generate` once during initial setup. The example environment already selects SQLite and the database-backed session/cache drivers.
+
+### Start the app
 
 ```sh
 php artisan serve --host=127.0.0.1 --port=8000
 ```
 
-For frontend hot reload, in another terminal:
+Open [http://127.0.0.1:8000](http://127.0.0.1:8000). Create a project, choose a size from the **+ dropdown**, and type a URL into the new screen's address bar.
+
+For frontend hot reload, keep Laravel running and open another terminal in the project directory:
 
 ```sh
 npm run dev
 ```
 
-Open http://127.0.0.1:8000. Without the Vite dev server, Laravel uses the latest `npm run build` output.
+Continue using the Laravel URL, not the Vite server URL. Without Vite running, the app serves the assets from the latest `npm run build`.
 
-## Use
+### Troubleshooting
 
-- Create a project from the library; each project is a separate canvas.
-- Add blank screens or enter HTTP/HTTPS URLs. New screens have a 1440 × 900 content viewport.
-- Drag a screen's label, browser chrome, or inactive content to move it. Drag its bottom-right handle to resize (320–3840 wide, 240–2160 high).
-- Click **Interact with website** or double-click the screen to use its links and forms. Click the canvas to return to arranging screens.
-- Pan by dragging the background, using the hand tool, holding Space while dragging, or scrolling. Ctrl/Cmd + scroll zooms around the pointer.
-- Toolbar buttons provide back-to-projects, select, hand, add screen, zoom, 100%, and fit all.
-- Shortcuts: V select, H hand, Space pan, +/− zoom, 0 fit all, 1 actual size.
-- Screen chrome supports URL changes, reload, duplicate, open in a new tab, and delete.
-- Rename the project at the upper left. Changes save automatically; failed saves display a retry action. Leaving through the toolbar flushes pending changes.
-- Search projects or delete them from the library.
-
-## Scope and constraints
-
-This is a **local single-user app**, without authentication or per-user authorization. All users of the same server share the project library. Keep the server bound to loopback; add authentication and project ownership before hosting it for others.
-
-Websites are loaded directly in sandboxed browser iframes. Sites with restrictive CSP `frame-ancestors` or `X-Frame-Options` cannot be embedded. An **open in new tab** fallback is always available. Embedding restrictions are not bypassed; cross-origin iframe failure cannot be reliably detected. Third-party cookies, authentication, popups, and navigation also follow the browser's policies. URL changes within an embedded site are not reflected in its address field because the parent cannot read cross-origin navigation.
-
-The app supports up to 100 screens per project and 10–200% canvas zoom. Many live websites can use significant memory. Concurrent edits to one project from multiple tabs use last-write-wins; collaboration and undo/redo are not implemented.
+- **Missing Vite manifest:** run `npm run build` or start `npm run dev`.
+- **Missing database/table:** create `database/database.sqlite` using the command above, then run `php artisan migrate`.
+- **SQLite driver missing:** enable/install your PHP installation's SQLite extension.
+- **Stale assets after stopping Vite:** if `public/hot` remains after an interrupted dev server, remove that file and run `npm run build`.
+- **Website refuses to load:** use its **open in new tab** control. Some websites prohibit embedding.
 
 ## Checks
 
@@ -57,6 +136,16 @@ The app supports up to 100 screens per project and 10–200% canvas zoom. Many l
 npm run typecheck
 npm run build
 php artisan test
+node --test tests/Unit/screens.test.ts
 ```
 
-Feature tests cover project lifecycle, screen/viewport persistence, blank screens, URL validation, duplicate IDs, and invalid zoom rejection. Tests use an isolated in-memory SQLite database.
+PHP feature tests cover project lifecycle, canvas persistence, linked-screen metadata, and validation using an isolated in-memory SQLite database. TypeScript unit tests cover shared URL updates, independent screen geometry, unlinking, and joining groups.
+
+## Scope and limitations
+
+- **Local, single-user app:** there is no authentication or project ownership. Everyone using the same server sees the same library. Keep the server bound to loopback; add authentication and authorization before hosting it for others.
+- **Browser embedding rules apply:** websites with restrictive CSP `frame-ancestors` or `X-Frame-Options` cannot be embedded. Webcanvas does not bypass these rules. Browser policies also govern cookies, login sessions, popups, and mixed content.
+- **URL linking is address-bar synchronization:** cross-origin navigation inside an iframe cannot be read by the parent app, so internal website clicks do not update the shared address.
+- **Limits:** up to 100 screens per project, widths of 320–3840 pixels, and heights of 240–2160 pixels. Many live websites can consume substantial memory.
+- **Concurrent edits:** editing the same project in several tabs uses last-write-wins. Collaboration and undo/redo are not implemented.
+- **Local data:** `.env`, the SQLite database, logs, and installed dependencies are excluded from Git. Screenshots are illustrative; no sample projects are seeded on installation.
