@@ -1,6 +1,6 @@
 import { Head, router } from '@inertiajs/react';
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
-import { ArrowLeft, Plus, MousePointer2, Hand, Minus, Maximize, Monitor, Copy, ExternalLink, RotateCw, Globe, X, Check, PanelsTopLeft, MoveUpRight, HelpCircle, Link2, Unlink, Grid2X2, Tags, Workflow } from 'lucide-react';
+import { ArrowLeft, Plus, MousePointer2, Hand, Minus, Maximize, Monitor, Copy, ExternalLink, RotateCw, Globe, X, Check, PanelsTopLeft, MoveUpRight, HelpCircle, Link2, Unlink, Grid2X2, Tags, Workflow, Undo2, Redo2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { AddScreenMenu } from '@/components/add-screen-menu';
 import { changeScreenUrl, linkScreens, defaultScreenPreset, type ScreenPreset } from '@/lib/screens';
@@ -11,12 +11,17 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { clamp, fitViewport, normalizeUrl } from '@/lib/canvas';
 import { CanvasItemView, ItemInspector } from '@/components/canvas-item';
 import { canvasObjects, orderedObjects, reorderObjects, itemLabels, type LayerAction } from '@/lib/items';
+import { CanvasHistory } from '@/lib/history';
 import type { CanvasItem, Project, Screen } from '@/types';
 
+type CanvasContent = Pick<Project, 'name' | 'screens'> & { items: CanvasItem[] };
+const canvasContent = ({ name, screens, items }: Snapshot): CanvasContent => ({ name, screens, items });
 type Snapshot = Pick<Project, 'name' | 'screens' | 'viewport'> & { items: CanvasItem[] };
 export default function Canvas({ project }: { project: Project }) {
     const [state, setState] = useState<Snapshot>({ name: project.name, screens: project.screens, items: project.items ?? [], viewport: project.viewport });
     const latest = useRef(state);
+    const history = useRef(new CanvasHistory<CanvasContent>());
+    const [historyStatus, setHistoryStatus] = useState({ canUndo: false, canRedo: false });
     const persisted = useRef(JSON.stringify(state));
     const inFlight = useRef<Promise<boolean> | null>(null);
     const [saveStatus, setSaveStatus] = useState('All changes saved');
@@ -30,6 +35,7 @@ export default function Canvas({ project }: { project: Project }) {
     const marqueeRef = useRef<Marquee | null>(null);
     function cancelMarquee() { marqueeRef.current = null; setMarquee(null); }
     function startMarquee(e: ReactPointerEvent) {
+        stage.current?.focus({ preventScroll: true });
         e.preventDefault(); setInteracting(null);
         const box = { startX: e.clientX, startY: e.clientY, x: e.clientX, y: e.clientY, initial: e.shiftKey ? selectionRef.current : [] };
         selectScreens(box.initial); marqueeRef.current = box; setMarquee(box);
@@ -70,10 +76,34 @@ export default function Canvas({ project }: { project: Project }) {
     const lastScreenPress = useRef({ id: '', time: 0, x: 0, y: 0 });
     function cancelLink() { linkGesture.current = null; setLinkDrag(null); }
     const stage = useRef<HTMLDivElement>(null);
-    const gesture = useRef<{ kind: 'pan' | 'move' | 'resize'; id?: string; ids: string[]; startX: number; startY: number; snapshot: Snapshot } | null>(null);
-    const update = useCallback((fn: (old: Snapshot) => Snapshot) => {
-        const next = fn(latest.current); latest.current = next; setState(next); setSaveStatus('Unsaved changes');
+    const gesture = useRef<{ kind: 'pan' | 'move' | 'resize'; id?: string; ids: string[]; startX: number; startY: number; snapshot: Snapshot; historyGroup: string } | null>(null);
+    const update = useCallback((fn: (old: Snapshot) => Snapshot, group?: string) => {
+        const previous = latest.current;
+        const next = fn(previous);
+        history.current.record(canvasContent(previous), canvasContent(next), group ?? (gesture.current?.kind !== 'pan' ? gesture.current?.historyGroup : undefined));
+        setHistoryStatus({ canUndo: history.current.canUndo, canRedo: history.current.canRedo });
+        latest.current = next; setState(next); setSaveStatus('Unsaved changes');
     }, []);
+    const restoreHistory = useCallback((direction: 'undo' | 'redo') => {
+        cancelMarquee(); cancelLink(); gesture.current = null; setDragging(false); setInteracting(null); setLinkingId(null);
+        const content = history.current[direction]();
+        if (!content) return;
+        const current = latest.current;
+        const restoredIds = [...content.screens, ...content.items].filter(item => ![...current.screens, ...current.items].some(existing => existing.id === item.id)).map(item => item.id);
+        const validIds = new Set([...content.screens, ...content.items].map(item => item.id));
+        selectScreens(restoredIds.length ? restoredIds : selectionRef.current.filter(id => validIds.has(id)));
+        const next = { ...current, ...content };
+        latest.current = next; setState(next); setSaveStatus('Unsaved changes');
+        setHistoryStatus({ canUndo: history.current.canUndo, canRedo: history.current.canRedo });
+    }, []);
+    const deleteItems = useCallback((ids: string[]) => {
+        if (!ids.length) return;
+        cancelMarquee(); cancelLink(); gesture.current = null; setDragging(false);
+        selectScreens(selectionRef.current.filter(id => !ids.includes(id)));
+        setInteracting(current => current && ids.includes(current) ? null : current);
+        setLinkingId(current => current && ids.includes(current) ? null : current);
+        update(old => ({ ...old, screens: old.screens.filter(screen => !ids.includes(screen.id)), items: old.items.filter(item => !ids.includes(item.id)) }));
+    }, [update]);
     const save = useCallback(async (): Promise<boolean> => {
         if (inFlight.current) { if (!await inFlight.current) return false; }
         const body = JSON.stringify(latest.current);
@@ -107,6 +137,16 @@ export default function Canvas({ project }: { project: Project }) {
     useEffect(() => {
         const down = (e: KeyboardEvent) => {
             if ((e.target as HTMLElement).closest('input, textarea, [contenteditable], [role="dialog"], [role="menu"], select')) return;
+            if (e.isComposing) return;
+            if ((e.metaKey || e.ctrlKey) && (e.key.toLowerCase() === 'z' || e.key.toLowerCase() === 'y')) {
+                e.preventDefault();
+                restoreHistory(e.key.toLowerCase() === 'y' || e.shiftKey ? 'redo' : 'undo');
+                return;
+            }
+            if ((e.key === 'Backspace' || e.key === 'Delete') && !e.metaKey && !e.ctrlKey && !e.altKey) {
+                if (selectionRef.current.length) { e.preventDefault(); if (!e.repeat) deleteItems(selectionRef.current); }
+                return;
+            }
             if (e.code === 'Space') { e.preventDefault(); setSpace(true); }
             if (e.key === 'Escape') { cancelMarquee(); cancelLink(); gesture.current = null; setDragging(false); setInteracting(null); setSelected(null); }
             if (e.key.toLowerCase() === 'v') setTool('select');
@@ -120,7 +160,7 @@ export default function Canvas({ project }: { project: Project }) {
         const blur = () => { cancelMarquee(); cancelLink(); setSpace(false); setDragging(false); gesture.current = null; };
         window.addEventListener('keydown', down); window.addEventListener('keyup', up); window.addEventListener('blur', blur);
         return () => { window.removeEventListener('keydown', down); window.removeEventListener('keyup', up); window.removeEventListener('blur', blur); };
-    }, [fit, zoomTo]);
+    }, [fit, zoomTo, restoreHistory, deleteItems]);
     useEffect(() => {
         const element = stage.current!;
         const wheel = (e: WheelEvent) => {
@@ -134,15 +174,17 @@ export default function Canvas({ project }: { project: Project }) {
     }, [update, zoomTo]);
     function start(e: ReactPointerEvent, kind: 'pan' | 'move' | 'resize', id?: string) {
         if (e.button !== 0 && e.button !== 1) return;
+        stage.current?.focus({ preventScroll: true });
         e.preventDefault(); e.stopPropagation(); setInteracting(null);
         const ids = id && selectionRef.current.includes(id) ? selectionRef.current : id ? [id] : [];
         if (id) selectScreens(kind === 'resize' ? [id] : ids);
-        gesture.current = { kind, id, ids, startX: e.clientX, startY: e.clientY, snapshot: latest.current };
+        gesture.current = { kind, id, ids, startX: e.clientX, startY: e.clientY, snapshot: latest.current, historyGroup: crypto.randomUUID() };
         e.currentTarget.setPointerCapture(e.pointerId); setDragging(true);
     }
     function startScreenDrag(e: ReactPointerEvent, screen: Screen) {
         if (e.shiftKey && e.button === 0 && !panning) {
-            e.preventDefault(); e.stopPropagation(); setInteracting(null);
+            stage.current?.focus({ preventScroll: true });
+        e.preventDefault(); e.stopPropagation(); setInteracting(null);
             selectScreens(selectionRef.current.includes(screen.id) ? selectionRef.current.filter(id => id !== screen.id) : [...selectionRef.current, screen.id]);
             lastScreenPress.current.time = 0;
             return;
@@ -176,7 +218,7 @@ export default function Canvas({ project }: { project: Project }) {
         if (connection?.targetId && Math.hypot(connection.x - connection.startX, connection.y - connection.startY) > 6) {
             update(old => ({ ...old, screens: linkScreens(old.screens, connection.sourceId, connection.targetId!, crypto.randomUUID()) }));
         }
-        cancelMarquee(); cancelLink(); gesture.current = null; setDragging(false);
+        cancelMarquee(); cancelLink(); gesture.current = null; setDragging(false); history.current.breakGroup();
     }
     function move(e: ReactPointerEvent) {
         if (marqueeRef.current) { updateMarquee(e); return; }
@@ -251,11 +293,12 @@ export default function Canvas({ project }: { project: Project }) {
         finally { setUploading(false); }
     }
     function changeItem(id: string, patch: Partial<CanvasItem>) {
-        update(old => ({ ...old, items: old.items.map(item => item.id === id ? { ...item, ...patch } : item) }));
+        update(old => ({ ...old, items: old.items.map(item => item.id === id ? { ...item, ...patch } : item) }), `item:${id}:${Object.keys(patch).sort().join(',')}`);
     }
     function startItemDrag(event: ReactPointerEvent, item: CanvasItem, resize = false) {
         if (event.button === 2) { event.stopPropagation(); return; }
         if (event.shiftKey && !resize && !panning) {
+            stage.current?.focus({ preventScroll: true });
             event.preventDefault(); event.stopPropagation();
             selectScreens(selectionRef.current.includes(item.id) ? selectionRef.current.filter(id => id !== item.id) : [...selectionRef.current, item.id]);
             return;
@@ -297,15 +340,9 @@ export default function Canvas({ project }: { project: Project }) {
     function unlinkScreen(id: string) {
         update(old => ({ ...old, screens: old.screens.map(screen => screen.id === id ? { ...screen, linkGroup: null } : screen) }));
     }
-    function deleteScreen(id: string) {
-        cancelMarquee(); cancelLink(); gesture.current = null; setDragging(false);
-        selectScreens(selectionRef.current.filter(screenId => screenId !== id));
-        setInteracting(current => current === id ? null : current);
-        setLinkingId(current => current === id ? null : current);
-        update(old => ({ ...old, screens: old.screens.filter(screen => screen.id !== id), items: old.items.filter(item => item.id !== id) }));
-    }
+    function deleteScreen(id: string) { deleteItems([id]); }
     const backToProjects = async () => { if (await save()) router.visit('/'); };
-    return <CanvasQuickMenu screens={[...screens, ...items.map(item => ({ ...item, title: item.label || itemLabels[item.kind] }))]} onLayer={arrangeItem} onFitItem={fitItem} onDuplicate={duplicateScreen} onResize={resizeScreen} onUnlink={unlinkScreen} onDelete={deleteScreen} tool={tool} zoom={v.zoom} canAddScreen={screens.length < 100} onAddScreen={() => addScreen()} onToolChange={changeTool} onZoom={zoomTo} onFit={fit}><div ref={stage} className={`canvas ${showLabels ? '' : 'hide-canvas-labels'} ${panning ? 'hand-mode' : ''} ${dragging ? 'is-dragging' : ''}`} style={{ backgroundImage: showDots ? undefined : 'none', backgroundSize: `${24 * v.zoom}px ${24 * v.zoom}px`, backgroundPosition: `${v.x}px ${v.y}px` }} onPointerDown={e => { if (e.button !== 2 && (e.target === stage.current || panning || e.button === 1)) { if (panning || e.button === 1) start(e, 'pan'); else if (e.button === 0) startMarquee(e); } }} onPointerMove={move} onPointerUp={finishDrag} onPointerCancel={() => { cancelMarquee(); cancelLink(); gesture.current = null; setDragging(false); }}>
+    return <CanvasQuickMenu screens={[...screens, ...items.map(item => ({ ...item, title: item.label || itemLabels[item.kind] }))]} onLayer={arrangeItem} onFitItem={fitItem} onDuplicate={duplicateScreen} onResize={resizeScreen} onUnlink={unlinkScreen} onDelete={deleteScreen} tool={tool} zoom={v.zoom} canAddScreen={screens.length < 100} onAddScreen={() => addScreen()} onToolChange={changeTool} onZoom={zoomTo} onFit={fit}><div ref={stage} tabIndex={-1} onBlurCapture={() => history.current.breakGroup()} className={`canvas ${showLabels ? '' : 'hide-canvas-labels'} ${panning ? 'hand-mode' : ''} ${dragging ? 'is-dragging' : ''}`} style={{ backgroundImage: showDots ? undefined : 'none', backgroundSize: `${24 * v.zoom}px ${24 * v.zoom}px`, backgroundPosition: `${v.x}px ${v.y}px` }} onPointerDown={e => { if (e.button !== 2 && (e.target === stage.current || panning || e.button === 1)) { if (panning || e.button === 1) start(e, 'pan'); else if (e.button === 0) startMarquee(e); } }} onPointerMove={move} onPointerUp={finishDrag} onPointerCancel={() => { cancelMarquee(); cancelLink(); gesture.current = null; setDragging(false); }}>
         <Head title={state.name} />
         <input ref={imageInput} type="file" accept="image/png,image/jpeg,image/gif,image/webp" className="hidden" aria-label="Upload canvas image" onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void uploadImage(file); }} />
         {(uploading || uploadError) && <div className="canvas-upload-status" role="status" data-ui onPointerDown={event => event.stopPropagation()}>{uploading ? 'Uploading image…' : uploadError}{uploadError && <button aria-label="Dismiss upload error" onClick={() => setUploadError('')}><X size={14} /></button>}</div>}
@@ -313,10 +350,12 @@ export default function Canvas({ project }: { project: Project }) {
         <nav className="canvas-toolbar" aria-label="Canvas tools" data-ui onPointerDown={e => e.stopPropagation()}>
             <div className="toolbar-project-group">
             <Button variant="ghost" size="icon" title="Back to projects" aria-label="Back to projects" onClick={backToProjects}><ArrowLeft /></Button><span className="divider" />
-        <div className="canvas-project toolbar-project" data-ui onPointerDown={e => e.stopPropagation()}><span className="brand-icon"><PanelsTopLeft size={20} /></span><div><input aria-label="Project name" value={state.name} maxLength={120} onChange={e => update(old => ({ ...old, name: e.target.value }))} onBlur={() => { if (!latest.current.name.trim()) update(old => ({ ...old, name: project.name })); }} /><button className={`save-status ${saveStatus.startsWith('Save failed') ? 'error' : ''}`} onClick={() => void save()}>{saveStatus === 'All changes saved' && <Check size={11} />}{saveStatus}</button></div></div>
+        <div className="canvas-project toolbar-project" data-ui onPointerDown={e => e.stopPropagation()}><span className="brand-icon"><PanelsTopLeft size={20} /></span><div><input aria-label="Project name" value={state.name} maxLength={120} onChange={e => update(old => ({ ...old, name: e.target.value }), 'project-name')} onBlur={() => { if (!latest.current.name.trim()) update(old => ({ ...old, name: project.name })); }} /><button className={`save-status ${saveStatus.startsWith('Save failed') ? 'error' : ''}`} onClick={() => void save()}>{saveStatus === 'All changes saved' && <Check size={11} />}{saveStatus}</button></div></div>
             </div><span className="divider project-divider" />
             <Button variant="ghost" size="icon" className={tool === 'select' ? 'active-tool' : ''} title="Select (V)" aria-label="Select tool" onClick={() => changeTool('select')}><MousePointer2 /></Button>
             <Button variant="ghost" size="icon" className={tool === 'hand' ? 'active-tool' : ''} title="Pan (H or hold Space)" aria-label="Pan tool" onClick={() => changeTool('hand')}><Hand /></Button><span className="divider" />
+            <Button variant="ghost" size="icon" title="Undo (⌘/Ctrl+Z)" aria-label="Undo" disabled={!historyStatus.canUndo} onClick={() => restoreHistory('undo')}><Undo2 /></Button>
+            <Button variant="ghost" size="icon" title="Redo (⌘/Ctrl+Shift+Z)" aria-label="Redo" disabled={!historyStatus.canRedo} onClick={() => restoreHistory('redo')}><Redo2 /></Button><span className="divider" />
             <AddScreenMenu disabled={screens.length >= 100} onChoose={addScreen} itemsDisabled={items.length >= 200 || uploading} onAddItem={addItem} /><span className="divider" />
             <Button variant="ghost" size="icon" aria-label="Zoom out" onClick={() => zoomTo(v.zoom / 1.2)}><Minus /></Button><button className="zoom-value" title="Reset to 100%" onClick={() => zoomTo(1)}>{Math.round(v.zoom * 100)}%</button><Button variant="ghost" size="icon" aria-label="Zoom in" onClick={() => zoomTo(v.zoom * 1.2)}><Plus /></Button><Button variant="ghost" size="icon" title="Fit all items (0)" aria-label="Fit all items" onClick={fit}><Maximize /></Button>
             <span className="divider" /><Button variant="ghost" size="icon" aria-label={showDots ? 'Hide dot background' : 'Show dot background'} title={showDots ? 'Hide dot background' : 'Show dot background'} aria-pressed={showDots} className={showDots ? 'active-tool' : ''} onClick={() => setShowDots(value => !value)}><Grid2X2 /></Button>
@@ -360,6 +399,6 @@ export default function Canvas({ project }: { project: Project }) {
                 <div className="dialog-actions">{linkingScreen.linkGroup && <Button variant="outline" onClick={() => { unlinkScreen(linkingScreen.id); setLinkingId(null); }}><Unlink size={15} /> Unlink this screen</Button>}<Button disabled={!existingTarget} onClick={() => { update(old => ({ ...old, screens: linkScreens(old.screens, linkingScreen.id, existingTarget, crypto.randomUUID()) })); setInteracting(null); setLinkingId(null); }}><Link2 size={15} /> Link screen</Button></div>
             </div>}
         </DialogContent></Dialog>
-        <Dialog open={help} onOpenChange={setHelp}><DialogContent><DialogHeader><DialogTitle>A little canvas know-how</DialogTitle><DialogDescription>Your shortcuts to the bigger picture.</DialogDescription></DialogHeader><div className="help-list"><p><span>Select / hand tool</span><kbd>V / H</kbd></p><p><span>Pan canvas</span><kbd>Space + drag</kbd></p><p><span>Zoom in / out</span><kbd>+ / −</kbd></p><p><span>Fit all / actual size</span><kbd>0 / 1</kbd></p><p><span>Use a live website</span><kbd>Double-click screen</kbd></p><p>Drag the corner of a screen to resize it. Changes save automatically to your local database.</p></div></DialogContent></Dialog>
+        <Dialog open={help} onOpenChange={setHelp}><DialogContent><DialogHeader><DialogTitle>A little canvas know-how</DialogTitle><DialogDescription>Your shortcuts to the bigger picture.</DialogDescription></DialogHeader><div className="help-list"><p><span>Undo / redo</span><kbd>⌘/Ctrl + Z / Shift + Z</kbd></p><p><span>Delete selected items</span><kbd>Backspace / Delete</kbd></p><p><span>Select / hand tool</span><kbd>V / H</kbd></p><p><span>Pan canvas</span><kbd>Space + drag</kbd></p><p><span>Zoom in / out</span><kbd>+ / −</kbd></p><p><span>Fit all / actual size</span><kbd>0 / 1</kbd></p><p><span>Use a live website</span><kbd>Double-click screen</kbd></p><p>Drag the corner of a screen to resize it. Changes save automatically to your local database.</p></div></DialogContent></Dialog>
     </div></CanvasQuickMenu>;
 }
