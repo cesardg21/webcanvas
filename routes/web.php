@@ -12,3 +12,5 @@ Route::delete('/projects/{project}', [ProjectController::class, 'destroy'])->nam
 
 Route::post('/projects/{project}/images', [ProjectImageController::class, 'store'])->name('projects.images.store');
 Route::get('/projects/{project}/images/{filename}', [ProjectImageController::class, 'show'])->name('projects.images.show');
+
+Route::get('/projects/{project}/state', [ProjectController::class, 'state'])->name('projects.state');

@@ -10,6 +10,6 @@ class Project extends Model
 
     protected function casts(): array
     {
-        return ['screens' => 'array', 'items' => 'array', 'viewport' => 'array'];
+        return ['revision' => 'integer', 'screens' => 'array', 'items' => 'array', 'viewport' => 'array'];
     }
 }

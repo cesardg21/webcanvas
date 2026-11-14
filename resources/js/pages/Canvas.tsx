@@ -1,3 +1,4 @@
+import { TooltipProvider, TooltipHint } from '@/components/ui/tooltip';
 import { Head, router } from '@inertiajs/react';
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
 import { ArrowLeft, Plus, MousePointer2, Hand, Minus, Maximize, Monitor, Copy, ExternalLink, RotateCw, Globe, X, Check, PanelsTopLeft, MoveUpRight, HelpCircle, Link2, Unlink, Grid2X2, Tags, Workflow, Undo2, Redo2 } from 'lucide-react';
@@ -22,6 +23,9 @@ export default function Canvas({ project }: { project: Project }) {
     const latest = useRef(state);
     const history = useRef(new CanvasHistory<CanvasContent>());
     const [historyStatus, setHistoryStatus] = useState({ canUndo: false, canRedo: false });
+    const revision = useRef(project.revision);
+    const conflict = useRef(false);
+    const [hasConflict, setHasConflict] = useState(false);
     const persisted = useRef(JSON.stringify(state));
     const inFlight = useRef<Promise<boolean> | null>(null);
     const [saveStatus, setSaveStatus] = useState('All changes saved');
@@ -57,6 +61,9 @@ export default function Canvas({ project }: { project: Project }) {
     }
     const imageInput = useRef<HTMLInputElement>(null);
     const [uploading, setUploading] = useState(false);
+    const uploadBusy = useRef(false);
+    const dragDepth = useRef(0);
+    const [droppingImages, setDroppingImages] = useState(false);
     const [uploadError, setUploadError] = useState('');
     const [showDots, setShowDots] = useState(true);
     const [showLabels, setShowLabels] = useState(true);
@@ -106,13 +113,21 @@ export default function Canvas({ project }: { project: Project }) {
     }, [update]);
     const save = useCallback(async (): Promise<boolean> => {
         if (inFlight.current) { if (!await inFlight.current) return false; }
+        if (conflict.current) return false;
         const body = JSON.stringify(latest.current);
+        const requestBody = JSON.stringify({ ...latest.current, revision: revision.current });
         if (body === persisted.current) return true;
         setSaveStatus('Saving…');
         const request = (async () => {
             try {
-                const response = await fetch(`/projects/${project.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-CSRF-TOKEN': document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')!.content }, body });
+                const response = await fetch(`/projects/${project.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-CSRF-TOKEN': document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')!.content }, body: requestBody });
+                if (response.status === 409) {
+                    conflict.current = true; setHasConflict(true); setSaveStatus('Changed elsewhere · local edits not saved');
+                    return false;
+                }
                 if (!response.ok) throw new Error('Save failed');
+                const result = await response.json();
+                revision.current = result.revision;
                 persisted.current = body;
                 setSaveStatus(JSON.stringify(latest.current) === body ? 'All changes saved' : 'Unsaved changes');
                 return true;
@@ -123,6 +138,39 @@ export default function Canvas({ project }: { project: Project }) {
         if (inFlight.current === request) inFlight.current = null;
         return result;
     }, [project.id]);
+    const applyRemoteProject = useCallback((remote: Project) => {
+        const next: Snapshot = { name: remote.name, screens: remote.screens, items: remote.items ?? [], viewport: remote.viewport };
+        latest.current = next; persisted.current = JSON.stringify(next); revision.current = remote.revision;
+        conflict.current = false; setHasConflict(false); setState(next); setSaveStatus('All changes saved');
+        history.current.clear(); setHistoryStatus({ canUndo: false, canRedo: false });
+        selectScreens([]); setInteracting(null); setLinkingId(null);
+    }, []);
+    async function loadLatestProject() {
+        try {
+            const response = await fetch(`/projects/${project.id}/state`, { headers: { Accept: 'application/json' }, cache: 'no-store' });
+            if (!response.ok) throw new Error();
+            applyRemoteProject((await response.json()).project);
+        } catch { setSaveStatus('Could not load latest canvas. Please try again.'); }
+    }
+    useEffect(() => {
+        let stopped = false;
+        let polling = false;
+        const idle = () => !conflict.current && !inFlight.current && !gesture.current && !linkGesture.current && !marqueeRef.current && JSON.stringify(latest.current) === persisted.current && !document.activeElement?.matches('input, textarea, select, [contenteditable]');
+        const poll = async () => {
+            if (polling || document.hidden || !idle()) return;
+            polling = true;
+            const startingRevision = revision.current;
+            try {
+                const response = await fetch(`/projects/${project.id}/state`, { headers: { Accept: 'application/json' }, cache: 'no-store' });
+                if (!response.ok) return;
+                const remote: Project = (await response.json()).project;
+                if (!stopped && idle() && revision.current === startingRevision && remote.revision > startingRevision) applyRemoteProject(remote);
+            } catch { /* A later poll retries when the server is reachable. */ }
+            finally { polling = false; }
+        };
+        const timer = setInterval(() => void poll(), 2000);
+        return () => { stopped = true; clearInterval(timer); };
+    }, [project.id, applyRemoteProject]);
     useEffect(() => { const timer = setTimeout(() => void save(), 500); return () => clearTimeout(timer); }, [state, save]);
     useEffect(() => {
         const beforeUnload = (e: BeforeUnloadEvent) => { if (JSON.stringify(latest.current) !== persisted.current) { e.preventDefault(); } };
@@ -268,30 +316,86 @@ export default function Canvas({ project }: { project: Project }) {
     function nextLayer() {
         return Math.max(-1, ...orderedObjects(latest.current.screens, latest.current.items).map(object => object.zIndex)) + 1;
     }
-    function addItem(kind: CanvasItem['kind'], image?: { src: string; width: number; height: number }) {
+    function addItem(kind: CanvasItem['kind'], image?: { src: string; width: number; height: number }, position?: { x: number; y: number }) {
         if (latest.current.items.length >= 200) return;
         if (kind === 'image' && !image) { imageInput.current?.click(); return; }
         const viewport = latest.current.viewport;
         const width = image ? Math.max(40, Math.min(600, image.width)) : kind === 'rectangle' || kind === 'text' ? 360 : 240;
         const height = image ? clamp(width * image.height / image.width, 40, 3840) : kind === 'text' ? 100 : kind === 'rectangle' ? 180 : 240;
-        const item: CanvasItem = { id: crypto.randomUUID(), kind, width, height, x: (window.innerWidth / 2 - viewport.x) / viewport.zoom - width / 2, y: (window.innerHeight / 2 - viewport.y) / viewport.zoom - height / 2, zIndex: nextLayer(), content: '', color: kind === 'note' ? '#fef08a' : kind === 'text' ? '#334155' : '#3b82f6', filled: true, fillStyle: 'solid', label: '', fontSize: kind === 'text' ? 32 : 24, src: image?.src ?? null };
+        const item: CanvasItem = { id: crypto.randomUUID(), kind, width, height, x: position?.x ?? (window.innerWidth / 2 - viewport.x) / viewport.zoom - width / 2, y: position?.y ?? (window.innerHeight / 2 - viewport.y) / viewport.zoom - height / 2, zIndex: nextLayer(), content: '', color: kind === 'note' ? '#fef08a' : kind === 'text' ? '#334155' : '#3b82f6', filled: true, fillStyle: 'solid', label: '', fontSize: kind === 'text' ? 32 : 24, src: image?.src ?? null };
         update(old => ({ ...old, items: [...old.items, item] }));
         setSelected(item.id); setInteracting(null); setTool('select');
     }
-    async function uploadImage(file: File) {
-        if (uploading) return;
-        setUploadError('');
-        if (file.size > 10 * 1024 * 1024) { setUploadError('Choose an image smaller than 10 MB.'); return; }
-        setUploading(true);
+    async function uploadImages(files: File[], position?: { x: number; y: number }) {
+        if (uploadBusy.current) { setUploadError('Wait for the current images to finish uploading, then drop again.'); return; }
+        uploadBusy.current = true;
+        setUploadError(''); setUploading(true);
+        const errors: string[] = [];
         try {
-            const body = new FormData(); body.append('image', file);
-            const response = await fetch(`/projects/${project.id}/images`, { method: 'POST', headers: { Accept: 'application/json', 'X-CSRF-TOKEN': document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')!.content }, body });
-            const result = await response.json();
-            if (!response.ok) throw new Error(result.errors?.image?.[0] ?? 'Could not upload this image. Try PNG, JPG, GIF, or WebP.');
-            addItem('image', result);
-        } catch (error) { setUploadError(error instanceof Error ? error.message : 'Image upload failed. Please try again.'); }
-        finally { setUploading(false); }
+            for (const [index, file] of files.entries()) {
+                if (latest.current.items.length >= 200) { errors.push('This canvas has reached its 200-item limit.'); break; }
+                if (!['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(file.type)) { errors.push(`${file.name}: choose PNG, JPG, GIF, or WebP.`); continue; }
+                if (file.size > 10 * 1024 * 1024) { errors.push(`${file.name}: choose an image smaller than 10 MB.`); continue; }
+                try {
+                    const body = new FormData(); body.append('image', file);
+                    const response = await fetch(`/projects/${project.id}/images`, { method: 'POST', headers: { Accept: 'application/json', 'X-CSRF-TOKEN': document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')!.content }, body });
+                    const result = await response.json();
+                    if (!response.ok) throw new Error(result.errors?.image?.[0] ?? 'Could not upload this image.');
+                    addItem('image', result, position ? { x: position.x + index * 32, y: position.y + index * 32 } : undefined);
+                } catch (error) { errors.push(`${file.name}: ${error instanceof Error ? error.message : 'Image upload failed. Please try again.'}`); }
+            }
+        } finally {
+            uploadBusy.current = false; setUploading(false);
+            if (errors.length) setUploadError(errors.join(' '));
+        }
     }
+    useEffect(() => {
+        const isFileDrag = (event: DragEvent) => event.dataTransfer?.types.includes('Files');
+        const enter = (event: DragEvent) => {
+            if (!isFileDrag(event)) return;
+            event.preventDefault(); dragDepth.current += 1; setDroppingImages(true);
+        };
+        const over = (event: DragEvent) => {
+            if (!isFileDrag(event)) return;
+            event.preventDefault();
+            if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+        };
+        const leave = (event: DragEvent) => {
+            if (!isFileDrag(event)) return;
+            dragDepth.current = Math.max(0, dragDepth.current - 1);
+            if (!dragDepth.current) setDroppingImages(false);
+        };
+        const reset = () => { dragDepth.current = 0; setDroppingImages(false); };
+        const drop = (event: DragEvent) => {
+            if (!isFileDrag(event)) return;
+            event.preventDefault(); reset();
+            const viewport = latest.current.viewport;
+            const bounds = stage.current!.getBoundingClientRect();
+            const position = { x: (event.clientX - bounds.left - viewport.x) / viewport.zoom, y: (event.clientY - bounds.top - viewport.y) / viewport.zoom };
+            void uploadImages(Array.from(event.dataTransfer?.files ?? []), position);
+        };
+        const paste = (event: ClipboardEvent) => {
+            const target = event.target;
+            if (event.defaultPrevented || (target instanceof HTMLElement && (target.isContentEditable || target.closest('input, textarea, select, [role="textbox"], [role="dialog"]')))) return;
+            const images = Array.from(event.clipboardData?.items ?? [])
+                .filter(item => item.kind === 'file' && item.type.startsWith('image/'))
+                .map(item => item.getAsFile())
+                .filter((file): file is File => file !== null);
+            if (!images.length) return;
+            event.preventDefault();
+            void uploadImages(images);
+        };
+        window.addEventListener('paste', paste);
+        window.addEventListener('dragenter', enter); window.addEventListener('dragover', over);
+        window.addEventListener('dragleave', leave); window.addEventListener('drop', drop);
+        window.addEventListener('dragend', reset); window.addEventListener('blur', reset);
+        return () => {
+            window.removeEventListener('paste', paste);
+            window.removeEventListener('dragenter', enter); window.removeEventListener('dragover', over);
+            window.removeEventListener('dragleave', leave); window.removeEventListener('drop', drop);
+            window.removeEventListener('dragend', reset); window.removeEventListener('blur', reset);
+        };
+    });
     function changeItem(id: string, patch: Partial<CanvasItem>) {
         update(old => ({ ...old, items: old.items.map(item => item.id === id ? { ...item, ...patch } : item) }), `item:${id}:${Object.keys(patch).sort().join(',')}`);
     }
@@ -340,30 +444,41 @@ export default function Canvas({ project }: { project: Project }) {
     function unlinkScreen(id: string) {
         update(old => ({ ...old, screens: old.screens.map(screen => screen.id === id ? { ...screen, linkGroup: null } : screen) }));
     }
+    function reloadAllScreens() {
+        const loadedScreens = latest.current.screens.filter(screen => screen.url);
+        setReloads(previous => {
+            const next = { ...previous };
+            for (const screen of loadedScreens) next[screen.id] = (previous[screen.id] ?? 0) + 1;
+            return next;
+        });
+    }
     function deleteScreen(id: string) { deleteItems([id]); }
     const backToProjects = async () => { if (await save()) router.visit('/'); };
     return <CanvasQuickMenu screens={[...screens, ...items.map(item => ({ ...item, title: item.label || itemLabels[item.kind] }))]} onLayer={arrangeItem} onFitItem={fitItem} onDuplicate={duplicateScreen} onResize={resizeScreen} onUnlink={unlinkScreen} onDelete={deleteScreen} tool={tool} zoom={v.zoom} canAddScreen={screens.length < 100} onAddScreen={() => addScreen()} onToolChange={changeTool} onZoom={zoomTo} onFit={fit}><div ref={stage} tabIndex={-1} onBlurCapture={() => history.current.breakGroup()} className={`canvas ${showLabels ? '' : 'hide-canvas-labels'} ${panning ? 'hand-mode' : ''} ${dragging ? 'is-dragging' : ''}`} style={{ backgroundImage: showDots ? undefined : 'none', backgroundSize: `${24 * v.zoom}px ${24 * v.zoom}px`, backgroundPosition: `${v.x}px ${v.y}px` }} onPointerDown={e => { if (e.button !== 2 && (e.target === stage.current || panning || e.button === 1)) { if (panning || e.button === 1) start(e, 'pan'); else if (e.button === 0) startMarquee(e); } }} onPointerMove={move} onPointerUp={finishDrag} onPointerCancel={() => { cancelMarquee(); cancelLink(); gesture.current = null; setDragging(false); }}>
         <Head title={state.name} />
-        <input ref={imageInput} type="file" accept="image/png,image/jpeg,image/gif,image/webp" className="hidden" aria-label="Upload canvas image" onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void uploadImage(file); }} />
+        {droppingImages && <div className="canvas-image-drop-overlay"><div role="status">Drop images onto the canvas<span>PNG, JPG, GIF, or WebP · up to 10 MB each</span></div></div>}
+        {hasConflict && <div className="canvas-sync-conflict" role="alert" data-ui onPointerDown={event => event.stopPropagation()}><span>This canvas changed elsewhere. Your local edits have not been saved.</span><Button variant="outline" onClick={() => void loadLatestProject()}>Discard local edits and load latest</Button></div>}
+        <input ref={imageInput} type="file" accept="image/png,image/jpeg,image/gif,image/webp" className="hidden" aria-label="Upload canvas image" onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void uploadImages([file]); }} />
         {(uploading || uploadError) && <div className="canvas-upload-status" role="status" data-ui onPointerDown={event => event.stopPropagation()}>{uploading ? 'Uploading image…' : uploadError}{uploadError && <button aria-label="Dismiss upload error" onClick={() => setUploadError('')}><X size={14} /></button>}</div>}
-        <div className="canvas-toolbars">
+        <TooltipProvider><div className="canvas-toolbars">
         <nav className="canvas-toolbar" aria-label="Canvas tools" data-ui onPointerDown={e => e.stopPropagation()}>
             <div className="toolbar-project-group">
-            <Button variant="ghost" size="icon" title="Back to projects" aria-label="Back to projects" onClick={backToProjects}><ArrowLeft /></Button><span className="divider" />
-        <div className="canvas-project toolbar-project" data-ui onPointerDown={e => e.stopPropagation()}><span className="brand-icon"><PanelsTopLeft size={20} /></span><div><input aria-label="Project name" value={state.name} maxLength={120} onChange={e => update(old => ({ ...old, name: e.target.value }), 'project-name')} onBlur={() => { if (!latest.current.name.trim()) update(old => ({ ...old, name: project.name })); }} /><button className={`save-status ${saveStatus.startsWith('Save failed') ? 'error' : ''}`} onClick={() => void save()}>{saveStatus === 'All changes saved' && <Check size={11} />}{saveStatus}</button></div></div>
+            <TooltipHint label="Back to projects"><Button variant="ghost" size="icon" aria-label="Back to projects" onClick={backToProjects}><ArrowLeft /></Button></TooltipHint><span className="divider" />
+        <div className="canvas-project toolbar-project" data-ui onPointerDown={e => e.stopPropagation()}><span className="brand-icon"><PanelsTopLeft size={20} /></span><div className="flex flex-col items-start"><TooltipHint label="Rename project"><input aria-label="Project name" value={state.name} maxLength={120} onChange={e => update(old => ({ ...old, name: e.target.value }), 'project-name')} onBlur={() => { if (!latest.current.name.trim()) update(old => ({ ...old, name: project.name })); }} /></TooltipHint><TooltipHint label="Save canvas"><button className={`save-status ${saveStatus.startsWith('Save failed') ? 'error' : ''}`} onClick={() => void save()}>{saveStatus === 'All changes saved' && <Check size={11} />}{saveStatus}</button></TooltipHint></div></div>
             </div><span className="divider project-divider" />
-            <Button variant="ghost" size="icon" className={tool === 'select' ? 'active-tool' : ''} title="Select (V)" aria-label="Select tool" onClick={() => changeTool('select')}><MousePointer2 /></Button>
-            <Button variant="ghost" size="icon" className={tool === 'hand' ? 'active-tool' : ''} title="Pan (H or hold Space)" aria-label="Pan tool" onClick={() => changeTool('hand')}><Hand /></Button><span className="divider" />
-            <Button variant="ghost" size="icon" title="Undo (⌘/Ctrl+Z)" aria-label="Undo" disabled={!historyStatus.canUndo} onClick={() => restoreHistory('undo')}><Undo2 /></Button>
-            <Button variant="ghost" size="icon" title="Redo (⌘/Ctrl+Shift+Z)" aria-label="Redo" disabled={!historyStatus.canRedo} onClick={() => restoreHistory('redo')}><Redo2 /></Button><span className="divider" />
+            <TooltipHint label="Select (V)"><Button variant="ghost" size="icon" className={tool === 'select' ? 'active-tool' : ''} aria-label="Select tool" onClick={() => changeTool('select')}><MousePointer2 /></Button></TooltipHint>
+            <TooltipHint label="Pan (H or hold Space)"><Button variant="ghost" size="icon" className={tool === 'hand' ? 'active-tool' : ''} aria-label="Pan tool" onClick={() => changeTool('hand')}><Hand /></Button></TooltipHint><span className="divider" />
+            <TooltipHint label="Undo (⌘/Ctrl+Z)"><Button variant="ghost" size="icon" aria-label="Undo" disabled={!historyStatus.canUndo} onClick={() => restoreHistory('undo')}><Undo2 /></Button></TooltipHint>
+            <TooltipHint label="Redo (⌘/Ctrl+Shift+Z)"><Button variant="ghost" size="icon" aria-label="Redo" disabled={!historyStatus.canRedo} onClick={() => restoreHistory('redo')}><Redo2 /></Button></TooltipHint><span className="divider" />
+            <TooltipHint label="Reload all pages"><Button variant="ghost" size="icon" aria-label="Reload all pages" disabled={!screens.some(screen => screen.url)} onClick={reloadAllScreens}><RotateCw /></Button></TooltipHint>
             <AddScreenMenu disabled={screens.length >= 100} onChoose={addScreen} itemsDisabled={items.length >= 200 || uploading} onAddItem={addItem} /><span className="divider" />
-            <Button variant="ghost" size="icon" aria-label="Zoom out" onClick={() => zoomTo(v.zoom / 1.2)}><Minus /></Button><button className="zoom-value" title="Reset to 100%" onClick={() => zoomTo(1)}>{Math.round(v.zoom * 100)}%</button><Button variant="ghost" size="icon" aria-label="Zoom in" onClick={() => zoomTo(v.zoom * 1.2)}><Plus /></Button><Button variant="ghost" size="icon" title="Fit all items (0)" aria-label="Fit all items" onClick={fit}><Maximize /></Button>
-            <span className="divider" /><Button variant="ghost" size="icon" aria-label={showDots ? 'Hide dot background' : 'Show dot background'} title={showDots ? 'Hide dot background' : 'Show dot background'} aria-pressed={showDots} className={showDots ? 'active-tool' : ''} onClick={() => setShowDots(value => !value)}><Grid2X2 /></Button>
-            <Button variant="ghost" size="icon" aria-label={showLabels ? 'Hide all labels' : 'Show all labels'} title={showLabels ? 'Hide all labels' : 'Show all labels'} aria-pressed={showLabels} className={showLabels ? 'active-tool' : ''} onClick={() => setShowLabels(value => !value)}><Tags /></Button>
-            <Button variant="ghost" size="icon" aria-label={showConnections ? 'Hide group link lines' : 'Show group link lines'} title={showConnections ? 'Hide group link lines' : 'Show group link lines'} aria-pressed={showConnections} className={showConnections ? 'active-tool' : ''} onClick={() => setShowConnections(value => !value)}><Workflow /></Button>
+            <TooltipHint label="Zoom out"><Button variant="ghost" size="icon" aria-label="Zoom out" onClick={() => zoomTo(v.zoom / 1.2)}><Minus /></Button></TooltipHint><TooltipHint label="Reset to 100%"><button className="zoom-value" onClick={() => zoomTo(1)}>{Math.round(v.zoom * 100)}%</button></TooltipHint><TooltipHint label="Zoom in"><Button variant="ghost" size="icon" aria-label="Zoom in" onClick={() => zoomTo(v.zoom * 1.2)}><Plus /></Button></TooltipHint><TooltipHint label="Fit all items (0)"><Button variant="ghost" size="icon" aria-label="Fit all items" onClick={fit}><Maximize /></Button></TooltipHint>
+            <span className="divider" /><TooltipHint label={showDots ? 'Hide dot background' : 'Show dot background'}><Button variant="ghost" size="icon" aria-label={showDots ? 'Hide dot background' : 'Show dot background'} aria-pressed={showDots} className={showDots ? 'active-tool' : ''} onClick={() => setShowDots(value => !value)}><Grid2X2 /></Button></TooltipHint>
+            <TooltipHint label={showLabels ? 'Hide all labels' : 'Show all labels'}><Button variant="ghost" size="icon" aria-label={showLabels ? 'Hide all labels' : 'Show all labels'} aria-pressed={showLabels} className={showLabels ? 'active-tool' : ''} onClick={() => setShowLabels(value => !value)}><Tags /></Button></TooltipHint>
+            <TooltipHint label={showConnections ? 'Hide group link lines' : 'Show group link lines'}><Button variant="ghost" size="icon" aria-label={showConnections ? 'Hide group link lines' : 'Show group link lines'} aria-pressed={showConnections} className={showConnections ? 'active-tool' : ''} onClick={() => setShowConnections(value => !value)}><Workflow /></Button></TooltipHint>
         </nav>
         {selectedItem && <ItemInspector item={selectedItem} onChange={patch => changeItem(selectedItem.id, patch)} onDelete={() => deleteScreen(selectedItem.id)} onDuplicate={() => duplicateScreen(selectedItem.id)} />}
-        </div>
+        </div></TooltipProvider>
         {!screens.length && !items.length && <div className="canvas-empty" data-ui onPointerDown={e => e.stopPropagation()}><div className="empty-icon"><PanelsTopLeft size={36} /></div><span className="eyebrow">YOUR IDEAS, WITHOUT EDGES</span><h1>Give your tabs some space.</h1><p>Add your first screen and start exploring.<br />An entire web, on your canvas.</p><Button onClick={() => addScreen()}><Plus size={16} /> Add your first screen</Button><small>Desktop size by default. Resize to make it yours.</small></div>}
         {showConnections && <ScreenConnections screens={screens} viewport={v} />}
         <div className="canvas-world" style={{ transform: `translate(${v.x}px, ${v.y}px) scale(${v.zoom})`, '--label-scale': Math.max(1, 1 / v.zoom) } as CSSProperties}>

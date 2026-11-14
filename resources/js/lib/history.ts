@@ -12,6 +12,8 @@ export class CanvasHistory<T> {
     get canUndo() { return this.past.length > 0; }
     get canRedo() { return this.future.length > 0; }
 
+    clear() { this.past = []; this.future = []; this.breakGroup(); }
+
     breakGroup() { this.group = undefined; }
 
     record(before: T, after: T, group?: string) {

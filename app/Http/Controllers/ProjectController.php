@@ -3,6 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Models\Project;
+use App\Support\CanvasData;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 
@@ -35,43 +37,19 @@ class ProjectController extends Controller
 
     public function update(Request $request, Project $project)
     {
-        $data = $request->validate([
-            'name' => 'sometimes|required|string|max:120',
-            'screens' => 'sometimes|present|array|max:100',
-            'screens.*' => 'array:id,title,url,x,y,width,height,linkGroup,zIndex',
-            'screens.*.zIndex' => 'sometimes|integer|between:0,10000',
-            'screens.*.linkGroup' => 'sometimes|nullable|uuid',
-            'screens.*.id' => 'required|uuid|distinct',
-            'screens.*.title' => 'required|string|max:120',
-            'screens.*.url' => ['nullable', 'url:http,https', 'max:4096'],
-            'screens.*.x' => 'required|numeric|between:-1000000,1000000',
-            'screens.*.y' => 'required|numeric|between:-1000000,1000000',
-            'screens.*.width' => 'required|numeric|between:320,3840',
-            'screens.*.height' => 'required|numeric|between:240,2160',
-            'items' => 'sometimes|present|array|max:200',
-            'items.*' => 'array:id,kind,x,y,width,height,zIndex,content,color,filled,fontSize,src,label,fillStyle',
-            'items.*.id' => 'required|uuid|distinct',
-            'items.*.kind' => 'required|in:note,text,image,square,rectangle,triangle,circle',
-            'items.*.x' => 'required|numeric|between:-1000000,1000000',
-            'items.*.y' => 'required|numeric|between:-1000000,1000000',
-            'items.*.width' => 'required|numeric|between:40,100000',
-            'items.*.height' => 'required|numeric|between:40,100000',
-            'items.*.zIndex' => 'required|integer|between:0,10000',
-            'items.*.content' => 'nullable|string|max:10000',
-            'items.*.color' => ['required', 'regex:/^#[a-fA-F0-9]{6}$/'],
-            'items.*.label' => 'sometimes|nullable|string|max:120',
-            'items.*.fillStyle' => 'sometimes|required|in:solid,translucent,outline',
-            'items.*.filled' => 'required|boolean',
-            'items.*.fontSize' => 'required|integer|between:12,120',
-            'items.*.src' => ['nullable', 'required_if:items.*.kind,image', 'string', 'regex:~^/projects/'.$project->id.'/images/[a-zA-Z0-9]{40}\.(png|jpe?g|gif|webp)$~'],
-            'viewport' => 'sometimes|required|array:x,y,zoom',
-            'viewport.x' => 'required_with:viewport|numeric|between:-1000000,1000000',
-            'viewport.y' => 'required_with:viewport|numeric|between:-1000000,1000000',
-            'viewport.zoom' => 'required_with:viewport|numeric|between:0.1,2',
-        ]);
-        $project->update($data);
+        $request->validate(['revision' => 'sometimes|required|integer|min:0']);
+        $data = CanvasData::validate($project, $request->all());
+        $revision = (int) $request->input('revision', $project->revision);
+        if (! CanvasData::save($project, $data, $revision)) {
+            return response()->json(['message' => 'This canvas changed elsewhere. Load the latest version before saving.'], 409);
+        }
 
-        return response()->json(['saved' => true]);
+        return response()->json(['saved' => true, 'revision' => $revision + 1]);
+    }
+
+    public function state(Project $project): JsonResponse
+    {
+        return response()->json(['project' => $project])->header('Cache-Control', 'no-store');
     }
 
     public function destroy(Project $project)

@@ -1,6 +1,6 @@
 export type Screen = { id: string; title: string; url: string; x: number; y: number; width: number; height: number; zIndex?: number; linkGroup?: string | null };
 export type Viewport = { x: number; y: number; zoom: number };
-export type Project = { id: number; name: string; screens: Screen[]; items: CanvasItem[] | null; viewport: Viewport; updated_at: string };
+export type Project = { id: number; revision: number; name: string; screens: Screen[]; items: CanvasItem[] | null; viewport: Viewport; updated_at: string };
 
 export type CanvasItem = {
     id: string;

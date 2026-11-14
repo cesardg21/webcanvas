@@ -147,5 +147,28 @@ PHP feature tests cover project lifecycle, canvas persistence, linked-screen met
 - **Browser embedding rules apply:** websites with restrictive CSP `frame-ancestors` or `X-Frame-Options` cannot be embedded. Webcanvas does not bypass these rules. Browser policies also govern cookies, login sessions, popups, and mixed content.
 - **URL linking is address-bar synchronization:** cross-origin navigation inside an iframe cannot be read by the parent app, so internal website clicks do not update the shared address.
 - **Limits:** up to 100 screens per project, widths of 320–3840 pixels, and heights of 240–2160 pixels. Many live websites can consume substantial memory.
-- **Concurrent edits:** editing the same project in several tabs uses last-write-wins. Collaboration and undo/redo are not implemented.
+- **Concurrent edits:** open canvases check for external changes while idle. Stale saves are rejected; a notice lets you explicitly discard local edits and load the latest canvas. External refreshes clear local undo history. Undo/redo covers the current editing session.
 - **Local data:** `.env`, the SQLite database, logs, and installed dependencies are excluded from Git. Screenshots are illustrative; no sample projects are seeded on installation.
+
+## Connect Codex through MCP
+
+Webcanvas includes a local **stdio MCP server** for listing, reading, creating, and updating projects. Codex can add, move, resize, link, style, and remove canvas objects. It edits canvas data, not the contents of embedded websites. Images can reuse a path already uploaded through the app.
+
+Run `composer install` (including development packages) and `php artisan migrate` first. The MCP package currently comes with the local Laravel Boost development tools; this is not a production MCP deployment.
+
+Register the server from this repository's directory:
+
+```sh
+codex mcp add webcanvas -- "$(command -v php)" "$PWD/artisan" mcp:start webcanvas
+```
+
+Codex starts the process when needed; there is no MCP port or separate daemon to keep running. Keep the normal Laravel app running to view the canvas. Restart Codex or open a new session after registration if the tools do not appear. See [Codex MCP configuration](https://developers.openai.com/codex/mcp).
+
+Example prompts:
+
+- “List my Webcanvas projects.”
+- “In my Responsive preview project, add linked desktop and phone screens for https://example.com.”
+- “Add a yellow sticky note beside those screens with a launch checklist.”
+- “Put a translucent blue rectangle behind these screens and label it Homepage.”
+
+The tools are `list_projects`, `get_project`, `create_project`, and `update_project`. Updates require the revision returned by `get_project`. Supplied screens/items arrays replace those arrays, so the agent must preserve objects it is not changing. Conflicting updates are rejected and must be reread before retrying. An idle open canvas picks up changes within a few seconds; refresh the project library to see newly created projects.
