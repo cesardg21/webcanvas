@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState, type PointerEvent } from 'react';
-import type { Screen, Viewport } from '@/types';
+import type { CanvasBounds, Viewport } from '@/types';
 
 const MAP_WIDTH = 224;
 const MAP_HEIGHT = 136;
 const PADDING = 12;
 type Projection = { x: number; y: number; scale: number };
 type Props = {
-    screens: Screen[];
+    screens: CanvasBounds[];
     viewport: Viewport;
     selected: string | null;
     onNavigate: (centerX: number, centerY: number) => void;
@@ -29,9 +29,9 @@ export function CanvasMinimap({ screens, viewport, selected, onNavigate }: Props
         height: size.height / viewport.zoom,
     };
     const left = Math.min(visible.x, ...screens.map(screen => screen.x));
-    const top = Math.min(visible.y, ...screens.map(screen => screen.y - 39));
+    const top = Math.min(visible.y, ...screens.map(screen => screen.y));
     const right = Math.max(visible.x + visible.width, ...screens.map(screen => screen.x + screen.width));
-    const bottom = Math.max(visible.y + visible.height, ...screens.map(screen => screen.y + screen.height + 84));
+    const bottom = Math.max(visible.y + visible.height, ...screens.map(screen => screen.y + screen.height));
     const scale = Math.min((MAP_WIDTH - PADDING * 2) / (right - left), (MAP_HEIGHT - PADDING * 2) / (bottom - top));
     const projection = frozenProjection ?? {
         scale,
@@ -97,7 +97,7 @@ export function CanvasMinimap({ screens, viewport, selected, onNavigate }: Props
                 onNavigate(visible.x + visible.width / 2 + direction[0] * visible.width * .15, visible.y + visible.height / 2 + direction[1] * visible.height * .15);
             }}
         >
-            {screens.map(screen => <rect key={screen.id} className={`minimap-screen ${selected === screen.id ? 'is-selected' : ''}`} x={screen.x * projection.scale + projection.x} y={screen.y * projection.scale + projection.y} width={screen.width * projection.scale} height={(screen.height + 84) * projection.scale} rx={2}><title>{screen.title}</title></rect>)}
+            {screens.map(screen => <rect key={screen.id} className={`minimap-screen ${selected === screen.id ? 'is-selected' : ''}`} x={screen.x * projection.scale + projection.x} y={screen.y * projection.scale + projection.y} width={screen.width * projection.scale} height={screen.height * projection.scale} rx={2}><title>{screen.title}</title></rect>)}
             <rect className="minimap-viewport" x={visible.x * projection.scale + projection.x} y={visible.y * projection.scale + projection.y} width={visible.width * projection.scale} height={visible.height * projection.scale} rx={3} />
         </svg>
     </aside>;

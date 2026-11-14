@@ -109,3 +109,46 @@ button, a { -webkit-tap-highlight-color: transparent; } button { cursor: pointer
 
 .selection-marquee { position: fixed; border: 1px solid #3b82f6; background: #3b82f61a; z-index: 35; pointer-events: none; }
 .selection-count { position: absolute; bottom: 64px; left: 24px; max-width: calc(100% - 240px); padding: 8px 12px; border-radius: 8px; background: #eff6ff; color: #2563eb; font-size: 11px; pointer-events: none; z-index: 25; }
+
+.canvas-item { position: absolute; pointer-events: auto; cursor: move; touch-action: none; user-select: none; }
+.canvas-item.selected { outline: 2px solid #3b82f6; outline-offset: 3px; }
+.canvas-item .item-shape, .canvas-item>img { width: 100%; height: 100%; display: block; }
+.canvas-item>img { object-fit: contain; pointer-events: none; }
+.item-writing { width: 100%; height: 100%; padding: 22px; overflow: hidden; line-height: 1.45; }
+.item-note .item-writing { box-shadow: 2px 8px 18px #33415518; border-radius: 2px; }
+.item-text .item-writing { padding: 6px; }
+.item-writing .item-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.item-writing textarea { width: 100%; height: 100%; resize: none; outline: none; border: 0; background: transparent; color: inherit; font: inherit; line-height: inherit; user-select: text; }
+.item-inspector { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; max-width: calc(100% - 32px); padding: 12px 16px; border: 1px solid #dce4f0; border-radius: 12px; background: #fff; box-shadow: 0 4px 20px #24385415; font-size: 12px; }
+.item-inspector label { display: flex; align-items: center; gap: 7px; white-space: nowrap; }
+.item-inspector input[type=color] { width: 28px; height: 28px; padding: 0; border: 0; cursor: pointer; background: transparent; }
+.item-inspector input[type=checkbox] { accent-color: #2563eb; }
+.item-inspector select { border: 1px solid #dce4f0; border-radius: 5px; padding: 4px; background: white; }
+.item-inspector button { padding: 5px; border-radius: 5px; }
+.item-inspector button:hover { background: #eff6ff; color: #2563eb; }
+.inspector-hint { display: flex; align-items: center; gap: 5px; color: #8290a3; font-size: 10px; }
+.canvas-upload-status { position: absolute; top: 110px; left: 50%; transform: translateX(-50%); z-index: 31; display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: white; border: 1px solid #dce4f0; border-radius: 8px; max-width: 90%; }
+.hand-mode .canvas-item { cursor: grab; }
+.is-dragging .canvas-item { cursor: grabbing; }
+
+.canvas-toolbars { position: absolute; z-index: 30; top: 24px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 10px; width: max-content; max-width: calc(100% - 24px); pointer-events: none; }
+.canvas-toolbars>.canvas-toolbar { position: relative; top: auto; left: auto; transform: none; max-width: 100%; pointer-events: auto; }
+.canvas-toolbars>.item-inspector { max-width: 100%; justify-content: center; pointer-events: auto; }
+@media (max-width: 760px) { .canvas-toolbars { top: 12px; } }
+
+.shape-label { position: absolute; top: -38px; left: 0; width: 100%; height: 28px; display: flex; align-items: center; gap: 8px; color: #6f7c8d; font-size: 13px; }
+.shape-label svg { flex-shrink: 0; }
+.shape-label input { width: 100%; border: 0; outline: none; background: transparent; color: inherit; padding: 3px 0; }
+.shape-label input::placeholder { color: #94a3b8; }
+.shape-label input:focus { border-bottom: 1px solid #60a5fa; }
+.shape-label-field { width: 130px; border: 1px solid #dce4f0; border-radius: 5px; padding: 4px 7px; }
+
+.canvas-world .screen-label, .canvas-world .shape-label { top: calc(-39px * var(--label-scale, 1)); right: auto; width: calc(100% / var(--label-scale, 1)); min-width: 180px; transform: scale(var(--label-scale, 1)); transform-origin: top left; }
+.canvas-world .screen-label { gap: 12px; font-size: 13px; }
+.canvas-world .screen-label>span:first-child { min-width: 0; }
+.canvas-world .screen-label>span:last-child { flex-shrink: 0; white-space: nowrap; }
+
+.hide-canvas-labels .screen-label, .hide-canvas-labels .shape-label { display: none; }
+
+.canvas-world .screen-label>span:last-child { font-size: 11px; }
+.canvas-world .screen-label svg, .canvas-world .shape-label svg { width: 14px; height: 14px; }

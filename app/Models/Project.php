@@ -6,10 +6,10 @@ use Illuminate\Database\Eloquent\Model;
 
 class Project extends Model
 {
-    protected $fillable = ['name', 'screens', 'viewport'];
+    protected $fillable = ['name', 'screens', 'items', 'viewport'];
 
     protected function casts(): array
     {
-        return ['screens' => 'array', 'viewport' => 'array'];
+        return ['screens' => 'array', 'items' => 'array', 'viewport' => 'array'];
     }
 }

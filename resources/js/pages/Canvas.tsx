@@ -1,6 +1,6 @@
 import { Head, router } from '@inertiajs/react';
-import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
-import { ArrowLeft, Plus, MousePointer2, Hand, Minus, Maximize, Monitor, Copy, ExternalLink, RotateCw, Globe, X, Check, PanelsTopLeft, MoveUpRight, HelpCircle, Link2, Unlink, Grid2X2 } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
+import { ArrowLeft, Plus, MousePointer2, Hand, Minus, Maximize, Monitor, Copy, ExternalLink, RotateCw, Globe, X, Check, PanelsTopLeft, MoveUpRight, HelpCircle, Link2, Unlink, Grid2X2, Tags, Workflow } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { AddScreenMenu } from '@/components/add-screen-menu';
 import { changeScreenUrl, linkScreens, defaultScreenPreset, type ScreenPreset } from '@/lib/screens';
@@ -9,11 +9,13 @@ import { CanvasMinimap } from '@/components/canvas-minimap';
 import { CanvasQuickMenu } from '@/components/canvas-quick-menu';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { clamp, fitViewport, normalizeUrl } from '@/lib/canvas';
-import type { Project, Screen } from '@/types';
+import { CanvasItemView, ItemInspector } from '@/components/canvas-item';
+import { canvasObjects, orderedObjects, reorderObjects, itemLabels, type LayerAction } from '@/lib/items';
+import type { CanvasItem, Project, Screen } from '@/types';
 
-type Snapshot = Pick<Project, 'name' | 'screens' | 'viewport'>;
+type Snapshot = Pick<Project, 'name' | 'screens' | 'viewport'> & { items: CanvasItem[] };
 export default function Canvas({ project }: { project: Project }) {
-    const [state, setState] = useState<Snapshot>({ name: project.name, screens: project.screens, viewport: project.viewport });
+    const [state, setState] = useState<Snapshot>({ name: project.name, screens: project.screens, items: project.items ?? [], viewport: project.viewport });
     const latest = useRef(state);
     const persisted = useRef(JSON.stringify(state));
     const inFlight = useRef<Promise<boolean> | null>(null);
@@ -44,10 +46,15 @@ export default function Canvas({ project }: { project: Project }) {
         const right = (Math.max(next.x, next.startX) - v.x) / v.zoom;
         const top = (Math.min(next.y, next.startY) - v.y) / v.zoom;
         const bottom = (Math.max(next.y, next.startY) - v.y) / v.zoom;
-        const hits = latest.current.screens.filter(screen => screen.x <= right && screen.x + screen.width >= left && screen.y - 39 <= bottom && screen.y + screen.height + 84 >= top).map(screen => screen.id);
+        const hits = canvasObjects(latest.current.screens, latest.current.items, v.zoom).filter(screen => screen.x <= right && screen.x + screen.width >= left && screen.y <= bottom && screen.y + screen.height >= top).map(screen => screen.id);
         selectScreens([...new Set([...box.initial, ...hits])]);
     }
+    const imageInput = useRef<HTMLInputElement>(null);
+    const [uploading, setUploading] = useState(false);
+    const [uploadError, setUploadError] = useState('');
     const [showDots, setShowDots] = useState(true);
+    const [showLabels, setShowLabels] = useState(true);
+    const [showConnections, setShowConnections] = useState(true);
     const [tool, setTool] = useState<'select' | 'hand'>('select');
     const [space, setSpace] = useState(false);
     const [dragging, setDragging] = useState(false);
@@ -96,7 +103,7 @@ export default function Canvas({ project }: { project: Project }) {
         const zoom = clamp(value, .1, 2), p = point ?? { x: window.innerWidth / 2, y: window.innerHeight / 2 };
         return { ...old, viewport: { zoom, x: p.x - (p.x - old.viewport.x) * zoom / old.viewport.zoom, y: p.y - (p.y - old.viewport.y) * zoom / old.viewport.zoom } };
     }), [update]);
-    const fit = useCallback(() => update(old => ({ ...old, viewport: fitViewport(old.screens, window.innerWidth, window.innerHeight) })), [update]);
+    const fit = useCallback(() => update(old => ({ ...old, viewport: fitViewport(canvasObjects(old.screens, old.items), window.innerWidth, window.innerHeight) })), [update]);
     useEffect(() => {
         const down = (e: KeyboardEvent) => {
             if ((e.target as HTMLElement).closest('input, textarea, [contenteditable], [role="dialog"], [role="menu"], select')) return;
@@ -178,16 +185,28 @@ export default function Canvas({ project }: { project: Project }) {
         const dx = e.clientX - g.startX, dy = e.clientY - g.startY, v = g.snapshot.viewport;
         if (g.kind === 'pan') update(old => ({ ...old, viewport: { ...v, x: v.x + dx, y: v.y + dy } }));
         else if (g.kind === 'move') {
-            update(old => ({ ...old, screens: old.screens.map(screen => {
-                if (!g.ids.includes(screen.id)) return screen;
-                const original = g.snapshot.screens.find(item => item.id === screen.id)!;
-                return { ...screen, x: original.x + dx / v.zoom, y: original.y + dy / v.zoom };
-            }) }));
+            const translate = <T extends Screen | CanvasItem>(object: T): T => {
+                if (!g.ids.includes(object.id)) return object;
+                const original = [...g.snapshot.screens, ...g.snapshot.items].find(item => item.id === object.id)!;
+                return { ...object, x: clamp(original.x + dx / v.zoom, -1000000, 1000000), y: clamp(original.y + dy / v.zoom, -1000000, 1000000) };
+            };
+            update(old => ({ ...old, screens: old.screens.map(translate), items: old.items.map(translate) }));
         } else {
-            const original = g.snapshot.screens.find(s => s.id === g.id)!;
-            update(old => ({ ...old, screens: old.screens.map(s => s.id !== g.id ? s : { ...s, ...({ width: Math.round(clamp(original.width + dx / v.zoom, 320, 3840)), height: Math.round(clamp(original.height + dy / v.zoom, 240, 2160)) }) }) }));
+            const originalItem = g.snapshot.items.find(item => item.id === g.id);
+            if (originalItem) {
+                let width = Math.round(clamp(originalItem.width + dx / v.zoom, 40, 100000));
+                let height = Math.round(clamp(originalItem.height + dy / v.zoom, 40, 100000));
+                if (originalItem.kind === 'square' || originalItem.kind === 'circle') width = height = Math.max(width, height);
+                if (originalItem.kind === 'image') height = Math.round(clamp(width * originalItem.height / originalItem.width, 40, 100000));
+                update(old => ({ ...old, items: old.items.map(item => item.id === g.id ? { ...item, width, height } : item) }));
+            } else {
+                const original = g.snapshot.screens.find(screen => screen.id === g.id);
+                if (!original) return;
+                update(old => ({ ...old, screens: old.screens.map(screen => screen.id !== g.id ? screen : { ...screen, width: Math.round(clamp(original.width + dx / v.zoom, 320, 3840)), height: Math.round(clamp(original.height + dy / v.zoom, 240, 2160)) }) }));
+            }
         }
     }
+
     function setScreenUrl(id: string, url: string) {
         update(old => ({ ...old, screens: changeScreenUrl(old.screens, id, url) }));
     }
@@ -196,7 +215,7 @@ export default function Canvas({ project }: { project: Project }) {
         const viewport = latest.current.viewport;
         const screen: Screen = {
             id: crypto.randomUUID(), title: `Screen ${latest.current.screens.length + 1}`, url: '',
-            width: size.width, height: size.height,
+            width: size.width, height: size.height, zIndex: nextLayer(),
             x: (window.innerWidth / 2 - viewport.x) / viewport.zoom - size.width / 2,
             y: (window.innerHeight / 2 - viewport.y) / viewport.zoom - size.height / 2,
         };
@@ -204,15 +223,71 @@ export default function Canvas({ project }: { project: Project }) {
         setSelected(screen.id);
         setInteracting(null);
     }
-    const { viewport: v, screens } = state;
+    function nextLayer() {
+        return Math.max(-1, ...orderedObjects(latest.current.screens, latest.current.items).map(object => object.zIndex)) + 1;
+    }
+    function addItem(kind: CanvasItem['kind'], image?: { src: string; width: number; height: number }) {
+        if (latest.current.items.length >= 200) return;
+        if (kind === 'image' && !image) { imageInput.current?.click(); return; }
+        const viewport = latest.current.viewport;
+        const width = image ? Math.max(40, Math.min(600, image.width)) : kind === 'rectangle' || kind === 'text' ? 360 : 240;
+        const height = image ? clamp(width * image.height / image.width, 40, 3840) : kind === 'text' ? 100 : kind === 'rectangle' ? 180 : 240;
+        const item: CanvasItem = { id: crypto.randomUUID(), kind, width, height, x: (window.innerWidth / 2 - viewport.x) / viewport.zoom - width / 2, y: (window.innerHeight / 2 - viewport.y) / viewport.zoom - height / 2, zIndex: nextLayer(), content: '', color: kind === 'note' ? '#fef08a' : kind === 'text' ? '#334155' : '#3b82f6', filled: true, fillStyle: 'solid', label: '', fontSize: kind === 'text' ? 32 : 24, src: image?.src ?? null };
+        update(old => ({ ...old, items: [...old.items, item] }));
+        setSelected(item.id); setInteracting(null); setTool('select');
+    }
+    async function uploadImage(file: File) {
+        if (uploading) return;
+        setUploadError('');
+        if (file.size > 10 * 1024 * 1024) { setUploadError('Choose an image smaller than 10 MB.'); return; }
+        setUploading(true);
+        try {
+            const body = new FormData(); body.append('image', file);
+            const response = await fetch(`/projects/${project.id}/images`, { method: 'POST', headers: { Accept: 'application/json', 'X-CSRF-TOKEN': document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')!.content }, body });
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.errors?.image?.[0] ?? 'Could not upload this image. Try PNG, JPG, GIF, or WebP.');
+            addItem('image', result);
+        } catch (error) { setUploadError(error instanceof Error ? error.message : 'Image upload failed. Please try again.'); }
+        finally { setUploading(false); }
+    }
+    function changeItem(id: string, patch: Partial<CanvasItem>) {
+        update(old => ({ ...old, items: old.items.map(item => item.id === id ? { ...item, ...patch } : item) }));
+    }
+    function startItemDrag(event: ReactPointerEvent, item: CanvasItem, resize = false) {
+        if (event.button === 2) { event.stopPropagation(); return; }
+        if (event.shiftKey && !resize && !panning) {
+            event.preventDefault(); event.stopPropagation();
+            selectScreens(selectionRef.current.includes(item.id) ? selectionRef.current.filter(id => id !== item.id) : [...selectionRef.current, item.id]);
+            return;
+        }
+        start(event, panning || event.button === 1 ? 'pan' : resize ? 'resize' : 'move', item.id);
+    }
+    function fitItem(id: string) {
+        setSelected(id); setInteracting(null);
+        update(old => ({ ...old, viewport: fitViewport(canvasObjects(old.screens, old.items).filter(item => item.id === id), window.innerWidth, window.innerHeight) }));
+    }
+    function arrangeItem(id: string, action: LayerAction) {
+        update(old => ({ ...old, ...reorderObjects(old.screens, old.items, id, action) }));
+    }
+    const { viewport: v, screens, items } = state;
+    const objects = canvasObjects(screens, items, v.zoom);
+    const selectedItem = selection.length === 1 ? items.find(item => item.id === selected) : undefined;
     const panning = tool === 'hand' || space;
     const linkingScreen = screens.find(screen => screen.id === linkingId);
     const linkedCount = (screen: Screen) => screen.linkGroup ? screens.filter(other => other.linkGroup === screen.linkGroup).length : 0;
     const changeTool = (tool: 'select' | 'hand') => { setTool(tool); setInteracting(null); };
     function duplicateScreen(id: string) {
+        const item = latest.current.items.find(item => item.id === id);
+        if (item) {
+            if (latest.current.items.length >= 200) return;
+            const copy = { ...item, id: crypto.randomUUID(), x: item.x + 40, y: item.y + 40, zIndex: nextLayer() };
+            update(old => ({ ...old, items: [...old.items, copy] }));
+            setSelected(copy.id);
+            return;
+        }
         const screen = latest.current.screens.find(screen => screen.id === id);
         if (!screen || latest.current.screens.length >= 100) return;
-        const copy = { ...screen, id: crypto.randomUUID(), x: screen.x + 80, y: screen.y + 80 };
+        const copy = { ...screen, id: crypto.randomUUID(), x: screen.x + 80, y: screen.y + 80, zIndex: nextLayer() };
         update(old => ({ ...old, screens: [...old.screens, copy] }));
         setSelected(copy.id);
     }
@@ -227,11 +302,14 @@ export default function Canvas({ project }: { project: Project }) {
         selectScreens(selectionRef.current.filter(screenId => screenId !== id));
         setInteracting(current => current === id ? null : current);
         setLinkingId(current => current === id ? null : current);
-        update(old => ({ ...old, screens: old.screens.filter(screen => screen.id !== id) }));
+        update(old => ({ ...old, screens: old.screens.filter(screen => screen.id !== id), items: old.items.filter(item => item.id !== id) }));
     }
     const backToProjects = async () => { if (await save()) router.visit('/'); };
-    return <CanvasQuickMenu screens={screens} onDuplicate={duplicateScreen} onResize={resizeScreen} onUnlink={unlinkScreen} onDelete={deleteScreen} tool={tool} zoom={v.zoom} canAddScreen={screens.length < 100} onAddScreen={() => addScreen()} onToolChange={changeTool} onZoom={zoomTo} onFit={fit}><div ref={stage} className={`canvas ${panning ? 'hand-mode' : ''} ${dragging ? 'is-dragging' : ''}`} style={{ backgroundImage: showDots ? undefined : 'none', backgroundSize: `${24 * v.zoom}px ${24 * v.zoom}px`, backgroundPosition: `${v.x}px ${v.y}px` }} onPointerDown={e => { if (e.button !== 2 && (e.target === stage.current || panning || e.button === 1)) { if (panning || e.button === 1) start(e, 'pan'); else if (e.button === 0) startMarquee(e); } }} onPointerMove={move} onPointerUp={finishDrag} onPointerCancel={() => { cancelMarquee(); cancelLink(); gesture.current = null; setDragging(false); }}>
+    return <CanvasQuickMenu screens={[...screens, ...items.map(item => ({ ...item, title: item.label || itemLabels[item.kind] }))]} onLayer={arrangeItem} onFitItem={fitItem} onDuplicate={duplicateScreen} onResize={resizeScreen} onUnlink={unlinkScreen} onDelete={deleteScreen} tool={tool} zoom={v.zoom} canAddScreen={screens.length < 100} onAddScreen={() => addScreen()} onToolChange={changeTool} onZoom={zoomTo} onFit={fit}><div ref={stage} className={`canvas ${showLabels ? '' : 'hide-canvas-labels'} ${panning ? 'hand-mode' : ''} ${dragging ? 'is-dragging' : ''}`} style={{ backgroundImage: showDots ? undefined : 'none', backgroundSize: `${24 * v.zoom}px ${24 * v.zoom}px`, backgroundPosition: `${v.x}px ${v.y}px` }} onPointerDown={e => { if (e.button !== 2 && (e.target === stage.current || panning || e.button === 1)) { if (panning || e.button === 1) start(e, 'pan'); else if (e.button === 0) startMarquee(e); } }} onPointerMove={move} onPointerUp={finishDrag} onPointerCancel={() => { cancelMarquee(); cancelLink(); gesture.current = null; setDragging(false); }}>
         <Head title={state.name} />
+        <input ref={imageInput} type="file" accept="image/png,image/jpeg,image/gif,image/webp" className="hidden" aria-label="Upload canvas image" onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void uploadImage(file); }} />
+        {(uploading || uploadError) && <div className="canvas-upload-status" role="status" data-ui onPointerDown={event => event.stopPropagation()}>{uploading ? 'Uploading image…' : uploadError}{uploadError && <button aria-label="Dismiss upload error" onClick={() => setUploadError('')}><X size={14} /></button>}</div>}
+        <div className="canvas-toolbars">
         <nav className="canvas-toolbar" aria-label="Canvas tools" data-ui onPointerDown={e => e.stopPropagation()}>
             <div className="toolbar-project-group">
             <Button variant="ghost" size="icon" title="Back to projects" aria-label="Back to projects" onClick={backToProjects}><ArrowLeft /></Button><span className="divider" />
@@ -239,14 +317,19 @@ export default function Canvas({ project }: { project: Project }) {
             </div><span className="divider project-divider" />
             <Button variant="ghost" size="icon" className={tool === 'select' ? 'active-tool' : ''} title="Select (V)" aria-label="Select tool" onClick={() => changeTool('select')}><MousePointer2 /></Button>
             <Button variant="ghost" size="icon" className={tool === 'hand' ? 'active-tool' : ''} title="Pan (H or hold Space)" aria-label="Pan tool" onClick={() => changeTool('hand')}><Hand /></Button><span className="divider" />
-            <AddScreenMenu disabled={screens.length >= 100} onChoose={addScreen} /><span className="divider" />
-            <Button variant="ghost" size="icon" aria-label="Zoom out" onClick={() => zoomTo(v.zoom / 1.2)}><Minus /></Button><button className="zoom-value" title="Reset to 100%" onClick={() => zoomTo(1)}>{Math.round(v.zoom * 100)}%</button><Button variant="ghost" size="icon" aria-label="Zoom in" onClick={() => zoomTo(v.zoom * 1.2)}><Plus /></Button><Button variant="ghost" size="icon" title="Fit all screens (0)" aria-label="Fit all screens" onClick={fit}><Maximize /></Button>
+            <AddScreenMenu disabled={screens.length >= 100} onChoose={addScreen} itemsDisabled={items.length >= 200 || uploading} onAddItem={addItem} /><span className="divider" />
+            <Button variant="ghost" size="icon" aria-label="Zoom out" onClick={() => zoomTo(v.zoom / 1.2)}><Minus /></Button><button className="zoom-value" title="Reset to 100%" onClick={() => zoomTo(1)}>{Math.round(v.zoom * 100)}%</button><Button variant="ghost" size="icon" aria-label="Zoom in" onClick={() => zoomTo(v.zoom * 1.2)}><Plus /></Button><Button variant="ghost" size="icon" title="Fit all items (0)" aria-label="Fit all items" onClick={fit}><Maximize /></Button>
             <span className="divider" /><Button variant="ghost" size="icon" aria-label={showDots ? 'Hide dot background' : 'Show dot background'} title={showDots ? 'Hide dot background' : 'Show dot background'} aria-pressed={showDots} className={showDots ? 'active-tool' : ''} onClick={() => setShowDots(value => !value)}><Grid2X2 /></Button>
+            <Button variant="ghost" size="icon" aria-label={showLabels ? 'Hide all labels' : 'Show all labels'} title={showLabels ? 'Hide all labels' : 'Show all labels'} aria-pressed={showLabels} className={showLabels ? 'active-tool' : ''} onClick={() => setShowLabels(value => !value)}><Tags /></Button>
+            <Button variant="ghost" size="icon" aria-label={showConnections ? 'Hide group link lines' : 'Show group link lines'} title={showConnections ? 'Hide group link lines' : 'Show group link lines'} aria-pressed={showConnections} className={showConnections ? 'active-tool' : ''} onClick={() => setShowConnections(value => !value)}><Workflow /></Button>
         </nav>
-        {!screens.length && <div className="canvas-empty" data-ui onPointerDown={e => e.stopPropagation()}><div className="empty-icon"><PanelsTopLeft size={36} /></div><span className="eyebrow">YOUR IDEAS, WITHOUT EDGES</span><h1>Give your tabs some space.</h1><p>Add your first screen and start exploring.<br />An entire web, on your canvas.</p><Button onClick={() => addScreen()}><Plus size={16} /> Add your first screen</Button><small>Desktop size by default. Resize to make it yours.</small></div>}
-        <ScreenConnections screens={screens} viewport={v} />
-        <div className="canvas-world" style={{ transform: `translate(${v.x}px, ${v.y}px) scale(${v.zoom})` }}>
-            {screens.map((screen, index) => <section key={screen.id} data-screen-id={screen.id} className={`browser-screen ${linkDrag?.targetId === screen.id ? 'link-drop-target' : ''} ${selection.includes(screen.id) ? 'selected' : ''}`} style={{ left: screen.x, top: screen.y, width: screen.width, zIndex: selection.includes(screen.id) ? 1000 : index }} onPointerDown={e => { if (panning || e.button === 1) start(e, 'pan'); else { e.stopPropagation(); if (!selectionRef.current.includes(screen.id)) setSelected(screen.id); } }}>
+        {selectedItem && <ItemInspector item={selectedItem} onChange={patch => changeItem(selectedItem.id, patch)} onDelete={() => deleteScreen(selectedItem.id)} onDuplicate={() => duplicateScreen(selectedItem.id)} />}
+        </div>
+        {!screens.length && !items.length && <div className="canvas-empty" data-ui onPointerDown={e => e.stopPropagation()}><div className="empty-icon"><PanelsTopLeft size={36} /></div><span className="eyebrow">YOUR IDEAS, WITHOUT EDGES</span><h1>Give your tabs some space.</h1><p>Add your first screen and start exploring.<br />An entire web, on your canvas.</p><Button onClick={() => addScreen()}><Plus size={16} /> Add your first screen</Button><small>Desktop size by default. Resize to make it yours.</small></div>}
+        {showConnections && <ScreenConnections screens={screens} viewport={v} />}
+        <div className="canvas-world" style={{ transform: `translate(${v.x}px, ${v.y}px) scale(${v.zoom})`, '--label-scale': Math.max(1, 1 / v.zoom) } as CSSProperties}>
+            {items.map(item => <CanvasItemView key={item.id} item={item} selected={selection.includes(item.id)} onStart={(event, resize) => startItemDrag(event, item, resize)} onChange={patch => changeItem(item.id, patch)} />)}
+            {screens.map((screen, index) => <section key={screen.id} data-screen-id={screen.id} className={`browser-screen ${linkDrag?.targetId === screen.id ? 'link-drop-target' : ''} ${selection.includes(screen.id) ? 'selected' : ''}`} style={{ left: screen.x, top: screen.y, width: screen.width, zIndex: screen.zIndex ?? index }} onPointerDown={e => { if (panning || e.button === 1) start(e, 'pan'); else { e.stopPropagation(); if (!selectionRef.current.includes(screen.id)) setSelected(screen.id); } }}>
                 <div className="screen-label" title="Drag to move · double-click and hold to draw a link" onPointerDown={e => startScreenDrag(e, screen)}><span><Monitor size={17} /> {screen.title}{linkedCount(screen) > 1 && <span className="linked-badge"><Link2 size={13} /> {linkedCount(screen)} linked</span>}</span><span>{screen.width} × {screen.height}</span></div>
                 <div className="browser-chrome" onPointerDown={e => { if (!(e.target as HTMLElement).closest('input,button,a')) startScreenDrag(e, screen); }}><span className="traffic-lights"><i /><i /><i /></span><button aria-label={`Reload ${screen.title}`} onClick={() => setReloads(old => ({ ...old, [screen.id]: (old[screen.id] ?? 0) + 1 }))}><RotateCw size={17} /></button><form className="address-bar" onSubmit={e => { e.preventDefault(); const input = e.currentTarget.elements.namedItem('url') as HTMLInputElement; try { const url = normalizeUrl(input.value); input.setCustomValidity(''); setScreenUrl(screen.id, url); setInteracting(null); } catch { input.setCustomValidity('Enter an http:// or https:// address.'); input.reportValidity(); } }}><Globe size={15} /><input key={screen.url} name="url" aria-label={`URL for ${screen.title}`} defaultValue={screen.url} placeholder="Enter a website URL…" onChange={e => e.target.setCustomValidity('')} /><button type="submit" aria-label="Load URL"><MoveUpRight size={15} /></button></form>
                     <button title="Manage linked screens" aria-label={`Link screens for ${screen.title}`} className={linkedCount(screen) > 1 ? 'linked-control' : ''} onClick={() => { setLinkingId(screen.id); setExistingTarget(''); }}><Link2 size={17} /></button>
@@ -262,13 +345,13 @@ export default function Canvas({ project }: { project: Project }) {
             </section>)}
         </div>
         {marquee && <div className="selection-marquee" style={{ left: Math.min(marquee.startX, marquee.x), top: Math.min(marquee.startY, marquee.y), width: Math.abs(marquee.x - marquee.startX), height: Math.abs(marquee.y - marquee.startY) }} />}
-        {selection.length > 1 && <div className="selection-count" role="status">{selection.length} screens selected · drag any selected screen to move together</div>}
+        {selection.length > 1 && <div className="selection-count" role="status">{selection.length} items selected · drag any selected item to move together</div>}
         {linkDrag && <div className="link-drag-overlay" aria-hidden="true"><svg><path d={`M ${linkDrag.startX} ${linkDrag.startY} C ${linkDrag.startX + (linkDrag.x - linkDrag.startX) / 2} ${linkDrag.startY}, ${linkDrag.startX + (linkDrag.x - linkDrag.startX) / 2} ${linkDrag.y}, ${linkDrag.x} ${linkDrag.y}`} /><circle cx={linkDrag.startX} cy={linkDrag.startY} r="4" /><circle cx={linkDrag.x} cy={linkDrag.y} r="6" /></svg><span style={{ left: Math.min(linkDrag.x + 16, window.innerWidth - 260), top: Math.max(10, linkDrag.y - 38) }}>{linkDrag.targetId ? 'Release to use this screen’s website' : 'Drag onto a screen · Esc to cancel'}</span></div>}
-        <CanvasMinimap screens={screens} viewport={v} selected={selected} onNavigate={(centerX, centerY) => {
+        <CanvasMinimap screens={objects} viewport={v} selected={selected} onNavigate={(centerX, centerY) => {
             setInteracting(null);
             update(old => ({ ...old, viewport: { ...old.viewport, x: clamp(window.innerWidth / 2 - centerX * old.viewport.zoom, -1000000, 1000000), y: clamp(window.innerHeight / 2 - centerY * old.viewport.zoom, -1000000, 1000000) } }));
         }} />
-        <div className="canvas-bottom" data-ui><span><span className="status-dot" />{screens.length} {screens.length === 1 ? 'screen' : 'screens'} <span className="bottom-divider">/</span> Infinite possibilities</span><span>Hold <kbd>space</kbd> to pan <span className="bottom-divider">·</span> <kbd>⌘ / ctrl</kbd> + scroll to zoom <Button variant="ghost" size="icon" aria-label="Canvas help" onClick={() => setHelp(true)}><HelpCircle size={17} /></Button></span></div>
+        <div className="canvas-bottom" data-ui><span><span className="status-dot" />{objects.length} {objects.length === 1 ? 'item' : 'items'} <span className="bottom-divider">/</span> Infinite possibilities</span><span>Hold <kbd>space</kbd> to pan <span className="bottom-divider">·</span> <kbd>⌘ / ctrl</kbd> + scroll to zoom <Button variant="ghost" size="icon" aria-label="Canvas help" onClick={() => setHelp(true)}><HelpCircle size={17} /></Button></span></div>
         <Dialog open={!!linkingScreen} onOpenChange={open => { if (!open) setLinkingId(null); }}><DialogContent><DialogHeader><DialogTitle>Link screens</DialogTitle><DialogDescription>Share a website address across screens. Each screen keeps its own size and position. Links clicked inside a website stay independent.</DialogDescription></DialogHeader>
             {linkingScreen && <div className="dialog-form">
                 {linkedCount(linkingScreen) > 1 && <p className="link-note"><Link2 size={15} /> This screen shares its address with {linkedCount(linkingScreen) - 1} other {linkedCount(linkingScreen) === 2 ? 'screen' : 'screens'}.</p>}
