@@ -10,7 +10,14 @@ class ProjectController extends Controller
 {
     public function index()
     {
-        return Inertia::render('Projects', ['projects' => Project::latest('updated_at')->get()]);
+        return Inertia::render('Projects', [
+            'projects' => Project::latest('updated_at')->get(),
+            'release' => [
+                'version' => (string) config('app.version'),
+                'build' => (string) config('app.build'),
+                'isLocal' => config('app.env') === 'local',
+            ],
+        ]);
     }
 
     public function store(Request $request)

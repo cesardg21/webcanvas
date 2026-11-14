@@ -12,6 +12,20 @@ class ProjectTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_release_metadata_only_marks_local_environment(): void
+    {
+        config(['app.version' => '0.2.0', 'app.build' => '42']);
+
+        foreach (['local' => true, 'production' => false, 'staging' => false] as $environment => $isLocal) {
+            config(['app.env' => $environment]);
+            $this->get('/')->assertInertia(fn (Assert $page) => $page
+                ->component('Projects')
+                ->where('release.version', '0.2.0')
+                ->where('release.build', '42')
+                ->where('release.isLocal', $isLocal));
+        }
+    }
+
     public function test_project_lifecycle_and_canvas_persistence(): void
     {
         $this->post('/projects', ['name' => 'Research'])->assertRedirect();
