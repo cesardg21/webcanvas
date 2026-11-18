@@ -133,11 +133,12 @@ Continue using the Laravel URL, not the Vite server URL. Without Vite running, t
 ## Checks
 
 ```sh
-npm run typecheck
+npm run check
 npm run build
 php artisan test
-node --test tests/Unit/screens.test.ts
 ```
+
+`npm run check` runs Prettier, ESLint, TypeScript, and frontend unit tests. Use `npm run format` to format frontend code and `npm run lint:fix` to apply safe lint fixes. ESLint enforces unused-variable checks, type-only imports, React Hooks dependencies, and Fast Refresh exports.
 
 PHP feature tests cover project lifecycle, canvas persistence, linked-screen metadata, and validation using an isolated in-memory SQLite database. TypeScript unit tests cover shared URL updates, independent screen geometry, unlinking, and joining groups.
 

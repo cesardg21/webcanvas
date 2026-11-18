@@ -7,14 +7,26 @@ export class CanvasHistory<T> {
 
     private limit: number;
 
-    constructor(limit = 100) { this.limit = limit; }
+    constructor(limit = 100) {
+        this.limit = limit;
+    }
 
-    get canUndo() { return this.past.length > 0; }
-    get canRedo() { return this.future.length > 0; }
+    get canUndo() {
+        return this.past.length > 0;
+    }
+    get canRedo() {
+        return this.future.length > 0;
+    }
 
-    clear() { this.past = []; this.future = []; this.breakGroup(); }
+    clear() {
+        this.past = [];
+        this.future = [];
+        this.breakGroup();
+    }
 
-    breakGroup() { this.group = undefined; }
+    breakGroup() {
+        this.group = undefined;
+    }
 
     record(before: T, after: T, group?: string) {
         if (JSON.stringify(before) === JSON.stringify(after)) return;

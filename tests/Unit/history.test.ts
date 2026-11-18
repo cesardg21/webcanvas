@@ -14,7 +14,13 @@ test('one undo restores a whole drag and redo reapplies its final position', () 
 });
 
 test('multi-item deletion can be restored with all properties and links intact', () => {
-    const before = { screens: [{ id: 'a', linkGroup: 'linked', url: 'https://example.com', width: 1440 }], items: [{ id: 'b', label: 'Ideas', fillStyle: 'translucent', zIndex: 2 }, { id: 'c', src: '/projects/1/images/example.png' }] };
+    const before = {
+        screens: [{ id: 'a', linkGroup: 'linked', url: 'https://example.com', width: 1440 }],
+        items: [
+            { id: 'b', label: 'Ideas', fillStyle: 'translucent', zIndex: 2 },
+            { id: 'c', src: '/projects/1/images/example.png' },
+        ],
+    };
     const after = { screens: [], items: [] };
     const history = new CanvasHistory<typeof before>();
     history.record(before, after);
@@ -57,4 +63,15 @@ test('history retains its latest bounded number of edits', () => {
     assert.equal(history.undo(), 2);
     assert.equal(history.undo(), 1);
     assert.equal(history.canUndo, false);
+});
+
+test('loading an external revision clears undo, redo, and the previous edit group', () => {
+    const history = new CanvasHistory<string>();
+    history.record('original', 'edited', 'label');
+    history.undo();
+    history.clear();
+    assert.equal(history.canUndo, false);
+    assert.equal(history.canRedo, false);
+    history.record('remote', 'local edit', 'label');
+    assert.equal(history.undo(), 'remote');
 });
