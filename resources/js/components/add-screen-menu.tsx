@@ -1,14 +1,18 @@
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { screenPresets, type ScreenPreset } from '@/lib/screens';
-import { Monitor } from 'lucide-react';
+import { Monitor, PanelsTopLeft } from 'lucide-react';
 import { DropdownMenu } from 'radix-ui';
 
 export function AddScreenMenu({
     disabled,
     onChoose,
+    groupDisabled,
+    onAddGroup,
 }: {
     disabled: boolean;
+    groupDisabled: boolean;
+    onAddGroup: () => void;
     onChoose: (preset: ScreenPreset) => void;
 }) {
     return (
@@ -39,6 +43,18 @@ export function AddScreenMenu({
                     onKeyDown={(event) => event.stopPropagation()}
                 >
                     <DropdownMenu.Label className="quick-menu-label">Add screen</DropdownMenu.Label>
+                    <DropdownMenu.Item
+                        className="quick-menu-item"
+                        disabled={groupDisabled}
+                        onSelect={onAddGroup}
+                    >
+                        <PanelsTopLeft />
+                        <span>
+                            Add group: XS–Large
+                            <small>4 linked screens · XS, Small, Medium, Large</small>
+                        </span>
+                    </DropdownMenu.Item>
+                    <DropdownMenu.Separator className="quick-menu-separator" />
                     {screenPresets.map((preset) => (
                         <DropdownMenu.Item
                             key={preset.id}

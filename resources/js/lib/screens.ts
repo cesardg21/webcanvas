@@ -50,3 +50,34 @@ export function linkTargets(screens: Screen[], source: Screen): Screen[] {
             (!source.linkGroup || candidate.linkGroup !== source.linkGroup),
     );
 }
+
+export const screenGroupPresets = screenPresets.slice(0, 4);
+
+export function createScreenGroup(
+    center: { x: number; y: number },
+    firstNumber: number,
+    firstLayer: number,
+): Screen[] {
+    const gap = 80;
+    const totalWidth =
+        screenGroupPresets.reduce((width, preset) => width + preset.width, 0) +
+        gap * (screenGroupPresets.length - 1);
+    const top = center.y - Math.max(...screenGroupPresets.map((preset) => preset.height)) / 2;
+    const linkGroup = crypto.randomUUID();
+    let left = center.x - totalWidth / 2;
+    return screenGroupPresets.map((preset, index) => {
+        const screen: Screen = {
+            id: crypto.randomUUID(),
+            title: `Screen ${firstNumber + index}`,
+            url: '',
+            width: preset.width,
+            height: preset.height,
+            x: left,
+            y: top,
+            zIndex: firstLayer + index,
+            linkGroup,
+        };
+        left += preset.width + gap;
+        return screen;
+    });
+}

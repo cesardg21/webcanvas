@@ -1,5 +1,5 @@
+import { useCanvasFullscreen } from '@/lib/use-canvas-fullscreen';
 import { BrowserScreen } from '@/components/browser-screen';
-import { CanvasHelpDialog } from '@/components/canvas-help-dialog';
 import { CanvasItemView } from '@/components/canvas-item';
 import { CanvasMinimap } from '@/components/canvas-minimap';
 import { CanvasQuickMenu } from '@/components/canvas-quick-menu';
@@ -18,10 +18,11 @@ import { useCanvasImages } from '@/lib/use-canvas-images';
 import { useCanvasInteractions } from '@/lib/use-canvas-interactions';
 import type { Project, Screen } from '@/types';
 import { Head, router } from '@inertiajs/react';
-import { HelpCircle, PanelsTopLeft, Plus, X } from 'lucide-react';
+import { PanelsTopLeft, Plus, X } from 'lucide-react';
 import { useState, type CSSProperties } from 'react';
 
 export default function Canvas({ project }: { project: Project }) {
+    const fullscreen = useCanvasFullscreen();
     const {
         state,
         latest,
@@ -77,7 +78,6 @@ export default function Canvas({ project }: { project: Project }) {
     const [showDots, setShowDots] = useState(true);
     const [showLabels, setShowLabels] = useState(true);
     const [showConnections, setShowConnections] = useState(true);
-    const [help, setHelp] = useState(false);
     const { imageInput, uploading, droppingImages, uploadError, clearUploadError, uploadImages } =
         useCanvasImages({
             projectId: project.id,
@@ -89,9 +89,11 @@ export default function Canvas({ project }: { project: Project }) {
     const {
         setScreenUrl,
         addScreen,
+        addScreenGroup,
         addItem,
         changeItem,
         fitItem,
+        fitItems,
         arrangeItem,
         duplicateItem,
         resizeScreen,
@@ -103,6 +105,7 @@ export default function Canvas({ project }: { project: Project }) {
         latest,
         update,
         selectItem: setSelected,
+        selectItems: selectScreens,
         stopInteracting: () => setInteracting(null),
         selectTool: () => setTool('select'),
         chooseImage: () => imageInput.current?.click(),
@@ -129,6 +132,8 @@ export default function Canvas({ project }: { project: Project }) {
                 ...items.map((item) => ({ ...item, title: item.label || itemLabels[item.kind] })),
             ]}
             onLayer={arrangeItem}
+            onReload={reloadScreen}
+            onLink={setLinkingId}
             onFitItem={fitItem}
             onDuplicate={duplicateItem}
             onResize={resizeScreen}
@@ -158,6 +163,22 @@ export default function Canvas({ project }: { project: Project }) {
                 onPointerCancel={cancelGesture}
             >
                 <Head title={state.name} />
+                {fullscreen.error && (
+                    <div
+                        className="canvas-upload-status"
+                        role="alert"
+                        data-ui
+                        onPointerDown={(event) => event.stopPropagation()}
+                    >
+                        {fullscreen.error}
+                        <button
+                            aria-label="Dismiss fullscreen error"
+                            onClick={fullscreen.dismissError}
+                        >
+                            <X size={14} />
+                        </button>
+                    </div>
+                )}
                 {droppingImages && (
                     <div className="canvas-image-drop-overlay">
                         <div role="status">
@@ -214,6 +235,9 @@ export default function Canvas({ project }: { project: Project }) {
                 <TooltipProvider>
                     <div className="canvas-toolbars">
                         <CanvasToolbar
+                            isFullscreen={fullscreen.isFullscreen}
+                            fullscreenSupported={fullscreen.supported}
+                            onToggleFullscreen={() => void fullscreen.toggleFullscreen()}
                             name={state.name}
                             saveStatus={saveStatus}
                             tool={tool}
@@ -239,9 +263,11 @@ export default function Canvas({ project }: { project: Project }) {
                             onHistory={restoreHistory}
                             onReload={reloadAllScreens}
                             onAddScreen={addScreen}
+                            onAddScreenGroup={addScreenGroup}
                             onAddItem={addItem}
                             onZoom={zoomTo}
-                            onFit={fit}
+                            fitLabel={selection.length ? 'Fit selection' : 'Fit all items'}
+                            onFit={selection.length ? () => fitItems(selection) : fit}
                             onToggleDots={() => setShowDots((value) => !value)}
                             onToggleLabels={() => setShowLabels((value) => !value)}
                             onToggleConnections={() => setShowConnections((value) => !value)}
@@ -305,7 +331,6 @@ export default function Canvas({ project }: { project: Project }) {
                             selected={selection.includes(screen.id)}
                             linkTarget={linkDrag?.targetId === screen.id}
                             linkedCount={linkedCount(screen)}
-                            canDuplicate={screens.length < 100}
                             reloadVersion={reloads[screen.id] ?? 0}
                             interacting={interacting === screen.id}
                             panning={panning}
@@ -313,16 +338,10 @@ export default function Canvas({ project }: { project: Project }) {
                             onSelect={(event) => selectScreen(event, screen.id)}
                             onDrag={(event) => startScreenDrag(event, screen)}
                             onResize={(event) => start(event, 'resize', screen.id)}
-                            onReload={() => reloadScreen(screen.id)}
                             onUrlChange={(url) => {
                                 setScreenUrl(screen.id, url);
                                 setInteracting(null);
                             }}
-                            onLink={() => {
-                                setLinkingId(screen.id);
-                            }}
-                            onDuplicate={() => duplicateItem(screen.id)}
-                            onDelete={() => deleteScreen(screen.id)}
                             onDoubleClick={() => {
                                 if (performance.now() < suppressInteractionUntil.current || panning)
                                     return;
@@ -397,25 +416,6 @@ export default function Canvas({ project }: { project: Project }) {
                         }));
                     }}
                 />
-                <div className="canvas-bottom" data-ui>
-                    <span>
-                        <span className="status-dot" />
-                        {objects.length} {objects.length === 1 ? 'item' : 'items'}{' '}
-                        <span className="bottom-divider">/</span> Infinite possibilities
-                    </span>
-                    <span>
-                        Hold <kbd>space</kbd> to pan <span className="bottom-divider">·</span>{' '}
-                        <kbd>⌘ / ctrl</kbd> + scroll to zoom{' '}
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            aria-label="Canvas help"
-                            onClick={() => setHelp(true)}
-                        >
-                            <HelpCircle size={17} />
-                        </Button>
-                    </span>
-                </div>
                 <LinkScreensDialog
                     key={linkingId ?? 'closed'}
                     screen={linkingScreen}
@@ -435,7 +435,6 @@ export default function Canvas({ project }: { project: Project }) {
                         setInteracting(null);
                     }}
                 />
-                <CanvasHelpDialog open={help} onOpenChange={setHelp} />
             </div>
         </CanvasQuickMenu>
     );

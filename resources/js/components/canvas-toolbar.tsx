@@ -12,6 +12,8 @@ import {
     Hand,
     Image,
     Maximize,
+    Expand,
+    Shrink,
     Minus,
     MousePointer2,
     PanelsTopLeft,
@@ -34,6 +36,9 @@ type Props = {
     hasPages: boolean;
     uploading: boolean;
     historyStatus: HistoryStatus;
+    isFullscreen: boolean;
+    fullscreenSupported: boolean;
+    onToggleFullscreen: () => void;
     showDots: boolean;
     showLabels: boolean;
     showConnections: boolean;
@@ -45,8 +50,10 @@ type Props = {
     onHistory: (direction: HistoryDirection) => void;
     onReload: () => void;
     onAddScreen: (preset: ScreenPreset) => void;
+    onAddScreenGroup: () => void;
     onAddItem: (kind: CanvasItem['kind']) => void;
     onZoom: (zoom: number) => void;
+    fitLabel: string;
     onFit: () => void;
     onToggleDots: () => void;
     onToggleLabels: () => void;
@@ -63,6 +70,9 @@ export function CanvasToolbar({
     hasPages,
     uploading,
     historyStatus,
+    isFullscreen,
+    fullscreenSupported,
+    onToggleFullscreen,
     showDots,
     showLabels,
     showConnections,
@@ -74,8 +84,10 @@ export function CanvasToolbar({
     onHistory,
     onReload,
     onAddScreen,
+    onAddScreenGroup,
     onAddItem,
     onZoom,
+    fitLabel,
     onFit,
     onToggleDots,
     onToggleLabels,
@@ -188,7 +200,12 @@ export function CanvasToolbar({
                     <RotateCw />
                 </Button>
             </TooltipHint>
-            <AddScreenMenu disabled={screenCount >= 100} onChoose={onAddScreen} />
+            <AddScreenMenu
+                disabled={screenCount >= 100}
+                onChoose={onAddScreen}
+                groupDisabled={screenCount > 96}
+                onAddGroup={onAddScreenGroup}
+            />
             <TooltipHint label="Add image">
                 <Button
                     variant="ghost"
@@ -249,9 +266,30 @@ export function CanvasToolbar({
                     <Plus />
                 </Button>
             </TooltipHint>
-            <TooltipHint label="Fit all items (0)">
-                <Button variant="ghost" size="icon" aria-label="Fit all items" onClick={onFit}>
+            <TooltipHint label={fitLabel}>
+                <Button variant="ghost" size="icon" aria-label={fitLabel} onClick={onFit}>
                     <Maximize />
+                </Button>
+            </TooltipHint>
+            <TooltipHint
+                label={
+                    fullscreenSupported
+                        ? isFullscreen
+                            ? 'Exit fullscreen (Esc)'
+                            : 'Enter fullscreen'
+                        : 'Fullscreen is unavailable in this browser'
+                }
+            >
+                <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+                    aria-pressed={isFullscreen}
+                    className={isFullscreen ? 'active-tool' : ''}
+                    disabled={!fullscreenSupported}
+                    onClick={onToggleFullscreen}
+                >
+                    {isFullscreen ? <Shrink /> : <Expand />}
                 </Button>
             </TooltipHint>
             <span className="divider" />

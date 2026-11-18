@@ -1,16 +1,6 @@
 import { normalizeUrl } from '@/lib/canvas';
 import type { Screen } from '@/types';
-import {
-    Copy,
-    ExternalLink,
-    Globe,
-    Link2,
-    Monitor,
-    MousePointer2,
-    MoveUpRight,
-    RotateCw,
-    X,
-} from 'lucide-react';
+import { Globe, Link2, Monitor, MousePointer2, MoveUpRight } from 'lucide-react';
 import type { PointerEvent } from 'react';
 type Props = {
     screen: Screen;
@@ -18,7 +8,6 @@ type Props = {
     selected: boolean;
     linkTarget: boolean;
     linkedCount: number;
-    canDuplicate: boolean;
     reloadVersion: number;
     interacting: boolean;
     panning: boolean;
@@ -26,11 +15,7 @@ type Props = {
     onSelect: (event: PointerEvent) => void;
     onDrag: (event: PointerEvent) => void;
     onResize: (event: PointerEvent) => void;
-    onReload: () => void;
     onUrlChange: (url: string) => void;
-    onLink: () => void;
-    onDuplicate: () => void;
-    onDelete: () => void;
     onDoubleClick: () => void;
     onInteract: () => void;
 };
@@ -41,7 +26,6 @@ export function BrowserScreen({
     selected,
     linkTarget,
     linkedCount,
-    canDuplicate,
     reloadVersion,
     interacting,
     panning,
@@ -49,11 +33,7 @@ export function BrowserScreen({
     onSelect,
     onDrag,
     onResize,
-    onReload,
     onUrlChange,
-    onLink,
-    onDuplicate,
-    onDelete,
     onDoubleClick,
     onInteract,
 }: Props) {
@@ -66,11 +46,11 @@ export function BrowserScreen({
         >
             <div
                 className="screen-label"
-                title="Drag to move · double-click and hold to draw a link"
+                title={`${screen.title} · ${screen.width} × ${screen.height}${linkedCount > 1 ? ` · ${linkedCount} linked` : ''} · Drag to move`}
                 onPointerDown={onDrag}
             >
                 <span>
-                    <Monitor size={17} /> {screen.title}
+                    <Monitor size={17} /> <strong className="screen-title">{screen.title}</strong>
                     {linkedCount > 1 && (
                         <span className="linked-badge">
                             <Link2 size={13} /> {linkedCount} linked
@@ -87,14 +67,11 @@ export function BrowserScreen({
                     if (!(e.target as HTMLElement).closest('input,button,a')) onDrag(e);
                 }}
             >
-                <span className="traffic-lights">
+                <span className="traffic-lights" aria-hidden="true">
                     <i />
                     <i />
                     <i />
                 </span>
-                <button aria-label={`Reload ${screen.title}`} onClick={onReload}>
-                    <RotateCw size={17} />
-                </button>
                 <form
                     className="address-bar"
                     onSubmit={(e) => {
@@ -110,7 +87,6 @@ export function BrowserScreen({
                         }
                     }}
                 >
-                    <Globe size={15} />
                     <input
                         key={screen.url}
                         name="url"
@@ -119,44 +95,7 @@ export function BrowserScreen({
                         placeholder="Enter a website URL…"
                         onChange={(e) => e.target.setCustomValidity('')}
                     />
-                    <button type="submit" aria-label="Load URL">
-                        <MoveUpRight size={15} />
-                    </button>
                 </form>
-                <button
-                    title="Manage linked screens"
-                    aria-label={`Link screens for ${screen.title}`}
-                    className={linkedCount > 1 ? 'linked-control' : ''}
-                    onClick={onLink}
-                >
-                    <Link2 size={17} />
-                </button>
-                <button
-                    title="Duplicate screen"
-                    aria-label={`Duplicate ${screen.title}`}
-                    disabled={!canDuplicate}
-                    onClick={onDuplicate}
-                >
-                    <Copy size={17} />
-                </button>
-                {screen.url && (
-                    <a
-                        href={screen.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        title="Open in new tab"
-                        aria-label={`Open ${screen.title} in new tab`}
-                    >
-                        <ExternalLink size={17} />
-                    </a>
-                )}
-                <button
-                    aria-label={`Delete ${screen.title}`}
-                    title="Delete screen"
-                    onClick={onDelete}
-                >
-                    <X size={18} />
-                </button>
             </div>
             <div className="browser-body" style={{ height: screen.height }}>
                 {screen.url ? (

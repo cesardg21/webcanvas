@@ -1,3 +1,4 @@
+import { createScreenGroup } from '../../resources/js/lib/screens.ts';
 import { linkTargets } from '../../resources/js/lib/screens.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -71,4 +72,35 @@ test('link targets include other independent screens and exclude the current gro
         linkTargets([groupedSource, independent, linked], groupedSource).map((screen) => screen.id),
         ['independent'],
     );
+});
+
+test('screen group creates XS through Large in a spaced row sharing one URL group', () => {
+    const screens = createScreenGroup({ x: 500, y: 700 }, 5, 12);
+    assert.deepEqual(
+        screens.map(({ width, height }) => [width, height]),
+        [
+            [375, 812],
+            [640, 900],
+            [768, 1024],
+            [1024, 768],
+        ],
+    );
+    assert.equal(new Set(screens.map((screen) => screen.id)).size, 4);
+    assert.equal(new Set(screens.map((screen) => screen.linkGroup)).size, 1);
+    assert.ok(screens[0].linkGroup);
+    assert.deepEqual(
+        screens.map((screen) => screen.zIndex),
+        [12, 13, 14, 15],
+    );
+    assert.deepEqual(
+        screens.map((screen) => screen.title),
+        ['Screen 5', 'Screen 6', 'Screen 7', 'Screen 8'],
+    );
+    for (let index = 1; index < screens.length; index++) {
+        assert.equal(screens[index].x - screens[index - 1].x - screens[index - 1].width, 80);
+        assert.equal(screens[index].y, screens[0].y);
+    }
+    assert.equal((screens[0].x + screens[3].x + screens[3].width) / 2, 500);
+    const updated = changeScreenUrl(screens, screens[0].id, 'https://example.com/');
+    assert.ok(updated.every((screen) => screen.url === 'https://example.com/'));
 });

@@ -3,12 +3,19 @@ import { useState, type RefObject } from 'react';
 import { clamp, fitViewport } from './canvas';
 import type { CanvasSnapshot } from './canvas-types';
 import { canvasObjects, orderedObjects, reorderObjects, type LayerAction } from './items';
-import { changeScreenUrl, defaultScreenPreset, type ScreenPreset } from './screens';
+import {
+    changeScreenUrl,
+    createScreenGroup,
+    screenGroupPresets,
+    defaultScreenPreset,
+    type ScreenPreset,
+} from './screens';
 
 type Options = {
     latest: RefObject<CanvasSnapshot>;
     update: (change: (previous: CanvasSnapshot) => CanvasSnapshot, group?: string) => void;
     selectItem: (id: string) => void;
+    selectItems: (ids: string[]) => void;
     stopInteracting: () => void;
     selectTool: () => void;
     chooseImage: () => void;
@@ -17,6 +24,7 @@ export function useCanvasActions({
     latest,
     update,
     selectItem,
+    selectItems,
     stopInteracting,
     selectTool,
     chooseImage,
@@ -41,6 +49,27 @@ export function useCanvasActions({
         update((old) => ({ ...old, screens: [...old.screens, screen] }));
         selectItem(screen.id);
         stopInteracting();
+    }
+    function addScreenGroup() {
+        const current = latest.current;
+        if (current.screens.length + screenGroupPresets.length > 100) return;
+        const viewport = current.viewport;
+        const group = createScreenGroup(
+            {
+                x: (window.innerWidth / 2 - viewport.x) / viewport.zoom,
+                y: (window.innerHeight / 2 - viewport.y) / viewport.zoom,
+            },
+            current.screens.length + 1,
+            nextLayer(),
+        );
+        update((old) => ({
+            ...old,
+            screens: [...old.screens, ...group],
+            viewport: fitViewport(canvasObjects(group, []), window.innerWidth, window.innerHeight),
+        }));
+        selectItems(group.map((screen) => screen.id));
+        stopInteracting();
+        selectTool();
     }
     function nextLayer() {
         return (
@@ -107,11 +136,14 @@ export function useCanvasActions({
     }
     function fitItem(id: string) {
         selectItem(id);
+        fitItems([id]);
+    }
+    function fitItems(ids: string[]) {
         stopInteracting();
         update((old) => ({
             ...old,
             viewport: fitViewport(
-                canvasObjects(old.screens, old.items).filter((item) => item.id === id),
+                canvasObjects(old.screens, old.items).filter((item) => ids.includes(item.id)),
                 window.innerWidth,
                 window.innerHeight,
             ),
@@ -179,9 +211,11 @@ export function useCanvasActions({
     return {
         setScreenUrl,
         addScreen,
+        addScreenGroup,
         addItem,
         changeItem,
         fitItem,
+        fitItems,
         arrangeItem,
         duplicateItem,
         resizeScreen,

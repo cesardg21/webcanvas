@@ -8,6 +8,9 @@ import {
     ChevronsDown,
     ChevronsUp,
     Copy,
+    ExternalLink,
+    Link2,
+    RotateCw,
     Hand,
     Maximize,
     Minus,
@@ -26,11 +29,14 @@ type Props = {
     screens: {
         id: string;
         title: string;
+        url?: string;
         width: number;
         height: number;
         linkGroup?: string | null;
         kind?: string;
     }[];
+    onReload: (id: string) => void;
+    onLink: (id: string) => void;
     onFitItem: (id: string) => void;
     onLayer: (id: string, action: LayerAction) => void;
     onUnlink: (id: string) => void;
@@ -45,6 +51,36 @@ type Props = {
     onZoom: (zoom: number) => void;
     onFit: () => void;
 };
+
+function Submenu({
+    label,
+    icon,
+    children,
+}: {
+    label: string;
+    icon: ReactNode;
+    children: ReactNode;
+}) {
+    return (
+        <ContextMenu.Sub>
+            <ContextMenu.SubTrigger className="quick-menu-item">
+                {icon}
+                {label}
+                <ChevronRight className="ml-auto" />
+            </ContextMenu.SubTrigger>
+            <ContextMenu.Portal>
+                <ContextMenu.SubContent
+                    className="canvas-quick-menu"
+                    sideOffset={6}
+                    collisionPadding={12}
+                    onKeyDown={(event) => event.stopPropagation()}
+                >
+                    {children}
+                </ContextMenu.SubContent>
+            </ContextMenu.Portal>
+        </ContextMenu.Sub>
+    );
+}
 
 export function CanvasQuickMenu({
     children,
@@ -61,6 +97,8 @@ export function CanvasQuickMenu({
     onResize,
     onDuplicate,
     onLayer,
+    onReload,
+    onLink,
     onFitItem,
 }: Props) {
     const [targetId, setTargetId] = useState<string | null>(null);
@@ -119,6 +157,34 @@ export function CanvasQuickMenu({
                                 {target.kind ? 'Duplicate item' : 'Duplicate screen'}
                             </ContextMenu.Item>
                             {!target.kind && (
+                                <Submenu label="Website" icon={<Monitor />}>
+                                    <ContextMenu.Item
+                                        className="quick-menu-item"
+                                        disabled={!target.url}
+                                        onSelect={() => onReload(target.id)}
+                                    >
+                                        <RotateCw />
+                                        Reload screen
+                                    </ContextMenu.Item>
+
+                                    <ContextMenu.Item
+                                        className="quick-menu-item"
+                                        disabled={!target.url}
+                                        onSelect={() => {
+                                            if (target.url)
+                                                window.open(
+                                                    target.url,
+                                                    '_blank',
+                                                    'noopener,noreferrer',
+                                                );
+                                        }}
+                                    >
+                                        <ExternalLink />
+                                        Open in new tab
+                                    </ContextMenu.Item>
+                                </Submenu>
+                            )}
+                            {!target.kind && (
                                 <ContextMenu.Sub>
                                     <ContextMenu.SubTrigger className="quick-menu-item">
                                         <Monitor />
@@ -162,36 +228,44 @@ export function CanvasQuickMenu({
                                 </ContextMenu.Sub>
                             )}
                             {!target.kind && (
-                                <ContextMenu.Item
-                                    className="quick-menu-item"
-                                    disabled={!target.linkGroup}
-                                    onSelect={() => onUnlink(target.id)}
-                                >
-                                    <Unlink />
-                                    Unlink screen
-                                </ContextMenu.Item>
+                                <Submenu label="Screen links" icon={<Link2 />}>
+                                    <ContextMenu.Item
+                                        className="quick-menu-item"
+                                        onSelect={() => onLink(target.id)}
+                                    >
+                                        <Link2 />
+                                        Manage linked screens
+                                    </ContextMenu.Item>
+                                    <ContextMenu.Item
+                                        className="quick-menu-item"
+                                        disabled={!target.linkGroup}
+                                        onSelect={() => onUnlink(target.id)}
+                                    >
+                                        <Unlink />
+                                        Unlink screen
+                                    </ContextMenu.Item>
+                                </Submenu>
                             )}
                             <ContextMenu.Separator className="quick-menu-separator" />
-                            <ContextMenu.Label className="quick-menu-label">
-                                Arrange
-                            </ContextMenu.Label>
-                            {(
-                                [
-                                    ['front', 'Bring to front', ChevronsUp],
-                                    ['forward', 'Bring forward', ArrowUp],
-                                    ['backward', 'Send backward', ArrowDown],
-                                    ['back', 'Send to back', ChevronsDown],
-                                ] as const
-                            ).map(([action, label, Icon]) => (
-                                <ContextMenu.Item
-                                    className="quick-menu-item"
-                                    key={action}
-                                    onSelect={() => onLayer(target.id, action)}
-                                >
-                                    <Icon />
-                                    {label}
-                                </ContextMenu.Item>
-                            ))}
+                            <Submenu label="Arrange" icon={<ChevronsUp />}>
+                                {(
+                                    [
+                                        ['front', 'Bring to front', ChevronsUp],
+                                        ['forward', 'Bring forward', ArrowUp],
+                                        ['backward', 'Send backward', ArrowDown],
+                                        ['back', 'Send to back', ChevronsDown],
+                                    ] as const
+                                ).map(([action, label, Icon]) => (
+                                    <ContextMenu.Item
+                                        className="quick-menu-item"
+                                        key={action}
+                                        onSelect={() => onLayer(target.id, action)}
+                                    >
+                                        <Icon />
+                                        {label}
+                                    </ContextMenu.Item>
+                                ))}
+                            </Submenu>
                             <ContextMenu.Separator className="quick-menu-separator" />
                             <ContextMenu.Item
                                 className="quick-menu-item screen-delete-action"
@@ -203,62 +277,63 @@ export function CanvasQuickMenu({
                             <ContextMenu.Separator className="quick-menu-separator" />
                         </>
                     )}
-                    <ContextMenu.Label className="quick-menu-label">
-                        Canvas actions
-                    </ContextMenu.Label>
-                    <ContextMenu.Item
-                        className="quick-menu-item"
-                        disabled={!canAddScreen}
-                        onSelect={onAddScreen}
-                    >
-                        <Plus />
-                        Add screen
-                    </ContextMenu.Item>
+                    <Submenu label="Canvas tools" icon={<MousePointer2 />}>
+                        <ContextMenu.Item
+                            className="quick-menu-item"
+                            disabled={!canAddScreen}
+                            onSelect={onAddScreen}
+                        >
+                            <Plus />
+                            Add screen
+                        </ContextMenu.Item>
+                        <ContextMenu.Separator className="quick-menu-separator" />
+                        <ContextMenu.RadioGroup
+                            value={tool}
+                            onValueChange={(value) => onToolChange(value as 'select' | 'hand')}
+                        >
+                            <ContextMenu.RadioItem className="quick-menu-item" value="select">
+                                <MousePointer2 />
+                                Select<kbd>V</kbd>
+                                <ContextMenu.ItemIndicator>
+                                    <Check />
+                                </ContextMenu.ItemIndicator>
+                            </ContextMenu.RadioItem>
+                            <ContextMenu.RadioItem className="quick-menu-item" value="hand">
+                                <Hand />
+                                Pan<kbd>H</kbd>
+                                <ContextMenu.ItemIndicator>
+                                    <Check />
+                                </ContextMenu.ItemIndicator>
+                            </ContextMenu.RadioItem>
+                        </ContextMenu.RadioGroup>
+                    </Submenu>
                     <ContextMenu.Separator className="quick-menu-separator" />
-                    <ContextMenu.RadioGroup
-                        value={tool}
-                        onValueChange={(value) => onToolChange(value as 'select' | 'hand')}
-                    >
-                        <ContextMenu.RadioItem className="quick-menu-item" value="select">
-                            <MousePointer2 />
-                            Select<kbd>V</kbd>
-                            <ContextMenu.ItemIndicator>
-                                <Check />
-                            </ContextMenu.ItemIndicator>
-                        </ContextMenu.RadioItem>
-                        <ContextMenu.RadioItem className="quick-menu-item" value="hand">
-                            <Hand />
-                            Pan<kbd>H</kbd>
-                            <ContextMenu.ItemIndicator>
-                                <Check />
-                            </ContextMenu.ItemIndicator>
-                        </ContextMenu.RadioItem>
-                    </ContextMenu.RadioGroup>
-                    <ContextMenu.Separator className="quick-menu-separator" />
-                    <ContextMenu.Item
-                        className="quick-menu-item"
-                        disabled={zoom >= 2}
-                        onSelect={() => onZoom(zoom * 1.2)}
-                    >
-                        <Plus />
-                        Zoom in<kbd>+</kbd>
-                    </ContextMenu.Item>
-                    <ContextMenu.Item
-                        className="quick-menu-item"
-                        disabled={zoom <= 0.1}
-                        onSelect={() => onZoom(zoom / 1.2)}
-                    >
-                        <Minus />
-                        Zoom out<kbd>−</kbd>
-                    </ContextMenu.Item>
-                    <ContextMenu.Item className="quick-menu-item" onSelect={() => onZoom(1)}>
-                        <Scan />
-                        Reset zoom to 100%<kbd>1</kbd>
-                    </ContextMenu.Item>
-                    <ContextMenu.Item className="quick-menu-item" onSelect={onFit}>
-                        <Maximize />
-                        Fit all items<kbd>0</kbd>
-                    </ContextMenu.Item>
+                    <Submenu label="Zoom" icon={<Maximize />}>
+                        <ContextMenu.Item
+                            className="quick-menu-item"
+                            disabled={zoom >= 2}
+                            onSelect={() => onZoom(zoom * 1.2)}
+                        >
+                            <Plus />
+                            Zoom in<kbd>+</kbd>
+                        </ContextMenu.Item>
+                        <ContextMenu.Item
+                            className="quick-menu-item"
+                            disabled={zoom <= 0.1}
+                            onSelect={() => onZoom(zoom / 1.2)}
+                        >
+                            <Minus />
+                            Zoom out<kbd>−</kbd>
+                        </ContextMenu.Item>
+                        <ContextMenu.Item className="quick-menu-item" onSelect={() => onZoom(1)}>
+                            <Scan />
+                            Reset zoom to 100%<kbd>1</kbd>
+                        </ContextMenu.Item>
+                        <ContextMenu.Item className="quick-menu-item" onSelect={onFit}>
+                            <Maximize />
+                            Fit all items<kbd>0</kbd>
+                        </ContextMenu.Item>
+                    </Submenu>
                 </ContextMenu.Content>
             </ContextMenu.Portal>
         </ContextMenu.Root>
