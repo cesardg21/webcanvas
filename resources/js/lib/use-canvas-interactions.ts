@@ -96,8 +96,17 @@ export function useCanvasInteractions({ latest, update, restore, breakHistoryGro
     const [linkDrag, setLinkDrag] = useState<LinkDrag | null>(null);
     const suppressInteractionUntil = useRef(0);
     const linkGesture = useRef<LinkDrag | null>(null);
+    const linkHoldTimer = useRef<number | null>(null);
+    useEffect(
+        () => () => {
+            if (linkHoldTimer.current !== null) window.clearTimeout(linkHoldTimer.current);
+        },
+        [],
+    );
     const lastScreenPress = useRef({ id: '', time: 0, x: 0, y: 0 });
     function cancelLink() {
+        if (linkHoldTimer.current !== null) window.clearTimeout(linkHoldTimer.current);
+        linkHoldTimer.current = null;
         linkGesture.current = null;
         setLinkDrag(null);
     }
@@ -338,7 +347,10 @@ export function useCanvasInteractions({ latest, update, restore, breakHistoryGro
             targetId: null,
         };
         linkGesture.current = connection;
-        setLinkDrag(connection);
+        linkHoldTimer.current = window.setTimeout(() => {
+            linkHoldTimer.current = null;
+            setLinkDrag(linkGesture.current);
+        }, 300);
         e.currentTarget.setPointerCapture(e.pointerId);
         lastScreenPress.current.time = 0;
     }
@@ -356,7 +368,7 @@ export function useCanvasInteractions({ latest, update, restore, breakHistoryGro
             targetId: targetId && targetId !== current.sourceId ? targetId : null,
         };
         linkGesture.current = next;
-        setLinkDrag(next);
+        if (linkHoldTimer.current === null) setLinkDrag(next);
     }
     function finishDrag(e: ReactPointerEvent) {
         if (marqueeRef.current) {
@@ -369,7 +381,8 @@ export function useCanvasInteractions({ latest, update, restore, breakHistoryGro
         const connection = linkGesture.current;
         if (
             connection &&
-            Math.hypot(connection.x - connection.startX, connection.y - connection.startY) > 6
+            (linkHoldTimer.current === null ||
+                Math.hypot(connection.x - connection.startX, connection.y - connection.startY) > 6)
         )
             suppressInteractionUntil.current = performance.now() + 500;
         if (

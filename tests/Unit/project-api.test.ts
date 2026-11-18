@@ -4,6 +4,7 @@ import { getProject, saveProject, uploadProjectImage } from '../../resources/js/
 
 const snapshot = {
     name: 'Research',
+    display_settings: { showDots: false, showLabels: true, showConnections: false },
     screens: [],
     items: [],
     viewport: { x: 100, y: 140, zoom: 0.6 },

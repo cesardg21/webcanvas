@@ -10,7 +10,9 @@ export type Screen = {
     linkGroup?: string | null;
 };
 export type Viewport = { x: number; y: number; zoom: number };
+export type DisplaySettings = { showDots: boolean; showLabels: boolean; showConnections: boolean };
 export type Project = {
+    display_settings: DisplaySettings;
     id: number;
     revision: number;
     name: string;

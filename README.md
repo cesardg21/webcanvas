@@ -30,8 +30,8 @@ Create, search, rename, and delete project canvases.
 - **Movable, resizable screens:** drag the title, browser chrome, blank content, or inactive website area; resize from the bottom-right corner.
 - **Responsive size presets:** add phone, tablet, laptop, desktop, and wide screens directly from the toolbar.
 - **Linked screens:** share one address across multiple screens while keeping their sizes and positions independent.
-- **Live website interaction:** double-click a loaded screen or choose **Interact with website** to use its links and forms. Click the canvas to return to arranging screens.
-- **Canvas navigation:** pan, zoom from 10–200%, reset to 100%, and fit all screens.
+- **Live website interaction:** choose **Interact with website** to use its links and forms. Click the canvas to return to arranging screens.
+- **Canvas navigation:** double-click a screen to fit it, pan, zoom from 10–200%, reset to 100%, and fit all screens.
 - **Compact minimap:** see the current viewport and navigate by clicking, dragging, or focusing it and using arrow keys.
 - **Right-click quick menu:** add a desktop screen, switch Select/Pan tools, adjust zoom, fit screens, or return to projects.
 - **Centered toolbar:** project name, save status, back navigation, tools, and a show/hide dot-background toggle.

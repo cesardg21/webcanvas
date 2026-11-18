@@ -12,6 +12,10 @@ class CanvasData
     public static function rules(Project $project): array
     {
         return [
+            'display_settings' => 'sometimes|required|array:showDots,showLabels,showConnections',
+            'display_settings.showDots' => 'required_with:display_settings|boolean',
+            'display_settings.showLabels' => 'required_with:display_settings|boolean',
+            'display_settings.showConnections' => 'required_with:display_settings|boolean',
             'name' => 'sometimes|required|string|max:120',
             'screens' => 'sometimes|present|array|max:100',
             'screens.*' => 'array:id,title,url,x,y,width,height,linkGroup,zIndex',

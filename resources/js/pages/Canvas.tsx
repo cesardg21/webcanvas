@@ -19,7 +19,7 @@ import { useCanvasInteractions } from '@/lib/use-canvas-interactions';
 import type { Project, Screen } from '@/types';
 import { Head, router } from '@inertiajs/react';
 import { PanelsTopLeft, Plus, X } from 'lucide-react';
-import { useState, type CSSProperties } from 'react';
+import { useRef, type CSSProperties } from 'react';
 
 export default function Canvas({ project }: { project: Project }) {
     const fullscreen = useCanvasFullscreen();
@@ -75,9 +75,17 @@ export default function Canvas({ project }: { project: Project }) {
         onStagePointerDown,
         selectScreen,
     } = interactions;
-    const [showDots, setShowDots] = useState(true);
-    const [showLabels, setShowLabels] = useState(true);
-    const [showConnections, setShowConnections] = useState(true);
+    const lastScreenFit = useRef<{ id: string; viewport: Project['viewport'] } | null>(null);
+    const { showDots, showLabels, showConnections } = state.display_settings;
+    function toggleDisplay(key: keyof typeof state.display_settings) {
+        update((previous) => ({
+            ...previous,
+            display_settings: {
+                ...previous.display_settings,
+                [key]: !previous.display_settings[key],
+            },
+        }));
+    }
     const { imageInput, uploading, droppingImages, uploadError, clearUploadError, uploadImages } =
         useCanvasImages({
             projectId: project.id,
@@ -268,9 +276,9 @@ export default function Canvas({ project }: { project: Project }) {
                             onZoom={zoomTo}
                             fitLabel={selection.length ? 'Fit selection' : 'Fit all items'}
                             onFit={selection.length ? () => fitItems(selection) : fit}
-                            onToggleDots={() => setShowDots((value) => !value)}
-                            onToggleLabels={() => setShowLabels((value) => !value)}
-                            onToggleConnections={() => setShowConnections((value) => !value)}
+                            onToggleDots={() => toggleDisplay('showDots')}
+                            onToggleLabels={() => toggleDisplay('showLabels')}
+                            onToggleConnections={() => toggleDisplay('showConnections')}
                         />
                         {selectedItem && (
                             <ItemInspector
@@ -345,8 +353,23 @@ export default function Canvas({ project }: { project: Project }) {
                             onDoubleClick={() => {
                                 if (performance.now() < suppressInteractionUntil.current || panning)
                                     return;
-                                setInteracting(screen.id);
-                                setTool('select');
+                                const previous = lastScreenFit.current;
+                                const viewport = latest.current.viewport;
+                                if (
+                                    previous?.id === screen.id &&
+                                    previous.viewport.x === viewport.x &&
+                                    previous.viewport.y === viewport.y &&
+                                    previous.viewport.zoom === viewport.zoom
+                                ) {
+                                    lastScreenFit.current = null;
+                                    fit();
+                                } else {
+                                    fitItem(screen.id);
+                                    lastScreenFit.current = {
+                                        id: screen.id,
+                                        viewport: latest.current.viewport,
+                                    };
+                                }
                             }}
                             onInteract={() => {
                                 setInteracting(screen.id);

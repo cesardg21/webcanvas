@@ -46,7 +46,7 @@ export function CanvasHelpDialog({
                         <kbd>0 / 1</kbd>
                     </p>
                     <p>
-                        <span>Use a live website</span>
+                        <span>Fit a screen</span>
                         <kbd>Double-click screen</kbd>
                     </p>
                     <p>

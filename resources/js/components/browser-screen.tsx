@@ -42,6 +42,10 @@ export function BrowserScreen({
             data-screen-id={screen.id}
             className={`browser-screen ${linkTarget ? 'link-drop-target' : ''} ${selected ? 'selected' : ''}`}
             style={{ left: screen.x, top: screen.y, width: screen.width, zIndex: layer }}
+            onDoubleClick={(event) => {
+                if ((event.target as Element).closest('input, button, a')) return;
+                onDoubleClick();
+            }}
             onPointerDown={onSelect}
         >
             <div
@@ -112,11 +116,7 @@ export function BrowserScreen({
                             }}
                         />
                         {!interacting && (
-                            <div
-                                className="screen-shield"
-                                onDoubleClick={onDoubleClick}
-                                onPointerDown={onDrag}
-                            >
+                            <div className="screen-shield" onPointerDown={onDrag}>
                                 <button
                                     onPointerDown={(e) => e.stopPropagation()}
                                     onClick={onInteract}
@@ -138,7 +138,7 @@ export function BrowserScreen({
                 <span>
                     {interacting
                         ? 'Interacting · click canvas to finish'
-                        : 'Drag to move · double-click to interact · double-click-drag to link'}
+                        : 'Drag to move · double-click to fit · double-click-drag to link'}
                 </span>
                 <span>
                     Page not showing? Some sites block embedding.{' '}

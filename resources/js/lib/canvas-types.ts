@@ -1,6 +1,6 @@
 import type { CanvasItem, Project } from '@/types';
 export type Point = { x: number; y: number };
-export type CanvasSnapshot = Pick<Project, 'name' | 'screens' | 'viewport'> & {
+export type CanvasSnapshot = Pick<Project, 'name' | 'screens' | 'viewport' | 'display_settings'> & {
     items: CanvasItem[];
 };
 export type CanvasContent = Pick<CanvasSnapshot, 'name' | 'screens' | 'items'>;
@@ -18,4 +18,5 @@ export const projectSnapshot = (project: Project): CanvasSnapshot => ({
     screens: project.screens,
     items: project.items ?? [],
     viewport: project.viewport,
+    display_settings: project.display_settings,
 });
